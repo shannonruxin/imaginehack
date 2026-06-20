@@ -3,6 +3,8 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { getClient, getChatHistory, suggestAngle, scanClient, type Client, type Message, type RecentSignal } from "@/lib/api";
 
+const POLL_INTERVAL = 8000; // ms between refreshes after scan
+
 type Tab = "overview" | "chat";
 
 const PLATFORM_LABEL: Record<string, string> = {
@@ -11,72 +13,98 @@ const PLATFORM_LABEL: Record<string, string> = {
   legacy: "Legacy.com",
 };
 
-// Parse signal content (stored as JSON string) into something readable
-function SignalContent({ signal }: { signal: RecentSignal }) {
+type ExaResult = { title?: string; url?: string; text?: string; highlights?: string[]; published_date?: string };
+type IGPost = { caption?: string; timestamp?: string; url?: string; display_url?: string; likes_count?: number };
+
+function TextBlock({ text, limit = 300 }: { text: string; limit?: number }) {
   const [expanded, setExpanded] = useState(false);
-
-  let parsed: unknown;
-  try { parsed = JSON.parse(signal.content); } catch { parsed = null; }
-
-  // Instagram: array of posts with caption/timestamp
-  if (signal.platform === "instagram" && Array.isArray(parsed)) {
-    const posts = parsed as { caption?: string; timestamp?: string; url?: string; likesCount?: number }[];
-    return (
-      <div className="space-y-3">
-        {posts.map((p, i) => (
-          <div key={i} className="rounded-md bg-muted/50 p-3 text-sm">
-            <p className="text-muted-foreground text-xs mb-1">
-              {p.timestamp ? new Date(p.timestamp).toLocaleDateString() : `Post ${i + 1}`}
-              {p.likesCount ? ` · ${p.likesCount} likes` : ""}
-            </p>
-            <p>{p.caption || <span className="text-muted-foreground italic">No caption</span>}</p>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  // LinkedIn / Legacy: Exa result — may be object with text/title or array of results
-  if (parsed && typeof parsed === "object") {
-    const results = Array.isArray(parsed) ? parsed : [parsed];
-    const items = results as { title?: string; text?: string; url?: string; summary?: string }[];
-    return (
-      <div className="space-y-3">
-        {items.slice(0, 3).map((item, i) => (
-          <div key={i} className="rounded-md bg-muted/50 p-3 text-sm">
-            {item.title && <p className="font-medium mb-1">{item.title}</p>}
-            <p className="text-muted-foreground text-xs leading-relaxed whitespace-pre-wrap">
-              {expanded
-                ? (item.text || item.summary || "")
-                : (item.text || item.summary || "").slice(0, 300) + ((item.text || item.summary || "").length > 300 ? "…" : "")}
-            </p>
-            {(item.text || item.summary || "").length > 300 && (
-              <button onClick={() => setExpanded(e => !e)}
-                className="text-xs text-primary mt-1 hover:underline">
-                {expanded ? "Show less" : "Show more"}
-              </button>
-            )}
-            {item.url && (
-              <p className="text-xs text-muted-foreground mt-1 truncate">{item.url}</p>
-            )}
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  // Fallback: raw text, collapsible
-  const raw = signal.content;
+  const trimmed = text.trim();
+  const needsTruncate = trimmed.length > limit;
   return (
-    <div className="text-xs text-muted-foreground rounded-md bg-muted/50 p-3 leading-relaxed whitespace-pre-wrap">
-      {expanded ? raw : raw.slice(0, 400) + (raw.length > 400 ? "…" : "")}
-      {raw.length > 400 && (
-        <button onClick={() => setExpanded(e => !e)} className="block text-primary mt-1 hover:underline">
+    <div>
+      <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap">
+        {needsTruncate && !expanded ? trimmed.slice(0, limit) + "…" : trimmed}
+      </p>
+      {needsTruncate && (
+        <button onClick={() => setExpanded(e => !e)} className="text-xs text-primary mt-1 hover:underline">
           {expanded ? "Show less" : "Show more"}
         </button>
       )}
     </div>
   );
+}
+
+function SignalContent({ signal }: { signal: RecentSignal }) {
+  let parsed: Record<string, unknown> | null = null;
+  try { parsed = JSON.parse(signal.content); } catch { /* fallback below */ }
+
+  if (!parsed) {
+    return <TextBlock text={signal.content} limit={400} />;
+  }
+
+  // Instagram: { handle, posts: [{caption, timestamp, url, display_url, likes_count}] }
+  if (signal.platform === "instagram") {
+    const posts = (parsed.posts as IGPost[]) ?? [];
+    if (posts.length === 0) return <p className="text-xs text-muted-foreground">No posts found.</p>;
+    return (
+      <div className="space-y-3">
+        {posts.map((p, i) => (
+          <div key={i} className={`rounded-md bg-muted/50 p-3 text-sm${p.url ? " cursor-pointer hover:bg-muted transition-colors" : ""}`} onClick={() => p.url && window.open(p.url, "_blank", "noopener,noreferrer")}>
+            <p className="text-xs text-muted-foreground mb-1.5">
+              {p.timestamp ? new Date(p.timestamp).toLocaleDateString("en-MY", { year: "numeric", month: "short", day: "numeric" }) : `Post ${i + 1}`}
+              {p.likes_count === -1 ? " · likes hidden" : p.likes_count ? ` · ${p.likes_count.toLocaleString()} likes` : ""}
+            </p>
+            {p.caption
+              ? <TextBlock text={p.caption} limit={250} />
+              : <p className="text-xs text-muted-foreground italic">No caption</p>}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // LinkedIn: { url, text } OR { results: [ExaResult] }
+  if (signal.platform === "linkedin") {
+    const results: ExaResult[] = parsed.results
+      ? (parsed.results as ExaResult[])
+      : [{ url: parsed.url as string, text: parsed.text as string }];
+    return (
+      <div className="space-y-3">
+        {results.map((r, i) => (
+          <div key={i} className="rounded-md bg-muted/50 p-3 text-sm">
+            {r.title && <p className="font-medium mb-1">{r.title}</p>}
+            {r.published_date && <p className="text-xs text-muted-foreground mb-1">{r.published_date}</p>}
+            {r.text && <TextBlock text={r.text} limit={400} />}
+            {r.url && <p className="text-xs text-muted-foreground mt-1.5 truncate">{r.url}</p>}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Legacy: { results: [ExaResult] }
+  if (signal.platform === "legacy") {
+    const results = (parsed.results as ExaResult[]) ?? [];
+    if (results.length === 0) return <p className="text-xs text-muted-foreground">No results found.</p>;
+    return (
+      <div className="space-y-3">
+        {results.map((r, i) => (
+          <div key={i} className="rounded-md bg-muted/50 p-3 text-sm">
+            {r.title && <p className="font-medium mb-1">{r.title}</p>}
+            {r.text && <TextBlock text={r.text} limit={300} />}
+            {r.highlights && r.highlights.length > 0 && (
+              <ul className="mt-1.5 space-y-0.5">
+                {r.highlights.map((h, j) => <li key={j} className="text-xs text-muted-foreground">· {h}</li>)}
+              </ul>
+            )}
+            {r.url && <p className="text-xs text-muted-foreground mt-1.5 truncate">{r.url}</p>}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return <TextBlock text={signal.content} limit={400} />;
 }
 
 export default function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -91,6 +119,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
   const [angleError, setAngleError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [scanMsg, setScanMsg] = useState<string | null>(null);
+  const [polling, setPolling] = useState(false);
 
   useEffect(() => {
     Promise.all([getClient(id), getChatHistory(id)])
@@ -102,12 +131,29 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
       .finally(() => setLoading(false));
   }, [id]);
 
+  async function refreshClient() {
+    const updated = await getClient(id);
+    setClient(updated);
+  }
+
   async function handleScan() {
     setScanning(true);
     setScanMsg(null);
     try {
       await scanClient(id);
-      setScanMsg("Scan queued — signals update in the background.");
+      setScanMsg("Scanning… refreshing signals automatically.");
+      // Poll 4 times (every 8s) to pick up results as they come in
+      setPolling(true);
+      let count = 0;
+      const interval = setInterval(async () => {
+        count++;
+        await refreshClient().catch(() => null);
+        if (count >= 4) {
+          clearInterval(interval);
+          setPolling(false);
+          setScanMsg("Scan complete — signals updated.");
+        }
+      }, POLL_INTERVAL);
     } catch {
       setScanMsg("Scan failed — check API keys.");
     } finally {
@@ -152,9 +198,9 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
         </div>
         <div className="flex items-center gap-3">
           {scanMsg && <p className="text-xs text-muted-foreground">{scanMsg}</p>}
-          <button onClick={handleScan} disabled={scanning}
+          <button onClick={handleScan} disabled={scanning || polling}
             className="inline-flex items-center justify-center rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50 transition-colors">
-            {scanning ? "Queuing…" : "↻ Fetch socials"}
+            {scanning ? "Queuing…" : polling ? "Refreshing…" : "↻ Fetch socials"}
           </button>
         </div>
       </div>
@@ -286,17 +332,17 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
               Recent signals
-              {client.recent_signals.length > 0 && (
+              {client.recent_signals.filter(s => s.platform !== "legacy").length > 0 && (
                 <span className="ml-2 normal-case font-normal">
-                  — {client.recent_signals.length} platform{client.recent_signals.length !== 1 ? "s" : ""}
+                  — {client.recent_signals.filter(s => s.platform !== "legacy").length} platform{client.recent_signals.filter(s => s.platform !== "legacy").length !== 1 ? "s" : ""}
                 </span>
               )}
             </p>
-            {client.recent_signals.length === 0 ? (
+            {client.recent_signals.filter(s => s.platform !== "legacy").length === 0 ? (
               <p className="text-sm text-muted-foreground">No signals yet — hit &quot;Fetch socials&quot; to run a scan.</p>
             ) : (
               <div className="space-y-4">
-                {client.recent_signals.map(s => (
+                {client.recent_signals.filter(s => s.platform !== "legacy").map(s => (
                   <div key={s.platform} className="rounded-lg border p-4">
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-sm font-medium">{PLATFORM_LABEL[s.platform] ?? s.platform}</span>

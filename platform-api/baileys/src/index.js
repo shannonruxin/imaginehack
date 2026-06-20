@@ -89,8 +89,11 @@ async function connectToWA() {
           const cached = lidCache.get(jid);
           if (cached) jid = cached;
           else {
-            console.log("Outbound LID not in cache:", jid);
-            continue;
+            console.log("Outbound LID not in cache, re-seeding:", jid);
+            await seedLidCache();
+            const retried = lidCache.get(jid);
+            if (retried) jid = retried;
+            else { console.log("Still unresolved after re-seed:", jid); continue; }
           }
         } else {
           const senderPn = msg.key.senderPn;
