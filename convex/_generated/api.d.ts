@@ -8,7 +8,13 @@
  * @module
  */
 
+import type * as chatHistory from "../chatHistory.js";
+import type * as clients from "../clients.js";
 import type * as myFunctions from "../myFunctions.js";
+import type * as outreachBatches from "../outreachBatches.js";
+import type * as projects from "../projects.js";
+import type * as seed from "../seed.js";
+import type * as signals from "../signals.js";
 
 import type {
   ApiFromModules,
@@ -17,7 +23,13 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  chatHistory: typeof chatHistory;
+  clients: typeof clients;
   myFunctions: typeof myFunctions;
+  outreachBatches: typeof outreachBatches;
+  projects: typeof projects;
+  seed: typeof seed;
+  signals: typeof signals;
 }>;
 
 /**
