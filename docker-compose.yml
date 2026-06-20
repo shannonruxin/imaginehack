@@ -1,0 +1,17 @@
+services:
+  openclaw:
+    build: .
+    image: imaginehack-openclaw
+    container_name: imaginehack-openclaw
+    ports:
+      - "8000:8000"
+      - "8080:8080"
+      - "18789:18789"
+    env_file:
+      - .env
+    volumes:
+      - openclaw-data:/root
+    restart: unless-stopped
+
+volumes:
+  openclaw-data:
