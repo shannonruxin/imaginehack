@@ -4,17 +4,15 @@ from config import settings
 _client = ApifyClient(settings.APIFY_API_TOKEN)
 
 # Actor that scrapes public Instagram profiles
-_ACTOR_ID = "apify/instagram-scraper"
+_ACTOR_ID = "apify/instagram-post-scraper"
 
 
 def run_instagram_scraper(handle: str, results_limit: int = 10) -> list[dict]:
     run = _client.actor(_ACTOR_ID).call(run_input={
-        "directUrls": [f"https://www.instagram.com/{handle}/"],
-        "resultsType": "posts",
+        "username": [handle],
         "resultsLimit": results_limit,
-        "addParentData": False,
     })
-    dataset = _client.dataset(run["defaultDatasetId"])
+    dataset = _client.dataset(run.default_dataset_id)
     posts = []
     for item in dataset.iterate_items():
         posts.append({
