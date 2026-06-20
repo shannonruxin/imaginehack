@@ -46,9 +46,15 @@ A social listening system for life insurance advisors. Monitors tracked clients'
 
 **Separation of concerns:**
 - **Baileys service** — persistent WA connection, streams client messages to backend, nothing else
-- **Python backend** — all logic: cron, LLM, Exa/Apify calls, DB writes, advisor intent handling
-- **OpenClaw** — thin WA adapter for advisor: receives message → POST to backend → send reply back
+- **Python backend** — all logic: cron, Exa/Apify calls, LLM signal detection, DB writes, advisor intent handling
+- **OpenClaw** — read-only notification + conversation layer. Reads DB flags, notifies advisor, handles advisor chat. Never calls Exa, Apify, or LLM for scanning — only fires when advisor sends a message or a batch is ready
 - **Convex DB** — shared state
+
+**Why Exa and scanning live in the backend, not OpenClaw:**
+- OpenClaw model credits only fire on meaningful interactions (advisor message, Monday batch)
+- Scanning runs on a cron regardless of OpenClaw — no model cost for routine checks
+- Hash-based change detection means LLM only runs when content actually changed since last scan
+- All intelligence in one place — easier to maintain and extend
 
 ---
 
@@ -151,6 +157,7 @@ social_intelligence     array of:
   handle_confidence       "confirmed" | "auto" | "pending" | null
   last_checked            number | null     -- timestamp
   next_check              number | null     -- last_checked + 24h
+  content_hash            string | null     -- md5 of last fetched content; LLM skipped if unchanged
   data_found              array of:
     signal_type             string          -- "new_job" | "pregnancy" | "family_death" | etc.
     summary                 string          -- "Posted pregnancy announcement on 17 Jun"
@@ -322,34 +329,52 @@ Monday 06:00 AM  →  generate_weekly_project()
 
 ### Daily Scan — `scan_due_clients()`
 
+Exa and Apify fetch content daily. LLM only runs if content changed since last scan (hash check). This keeps OpenClaw out of scanning entirely — it has no role here.
+
 ```
 1. Query clients WHERE any social_intelligence[].next_check < now()
 
 2. For each due client, per platform in parallel:
 
    LinkedIn
-     if handle set → exa.search(query=site:{linkedin_url}, text=true)
-                  → LLM classifies signals
-                  → update social_intelligence[linkedin]: last_checked, next_check, data_found
-     else          → run handle resolution
+     if handle set:
+       raw = exa.search(query=site:{linkedin_url}, text=true)
+       hash = md5(raw.text)
+       if hash == social_intelligence[linkedin].content_hash:
+         → skip LLM, just update last_checked + next_check  ← no credit spent
+       else:
+         → LLM classifies signals from raw.text
+         → update social_intelligence[linkedin]:
+             last_checked, next_check, content_hash=hash, data_found
+     else:
+       → run handle resolution
 
    Instagram
-     if handle confirmed → apify.actor("instagram-profile-scraper")
-                             .call({ usernames: [handle], resultsLimit: 10 })
-                         → LLM classifies signals (+ vision LLM for captionless images)
-                         → update social_intelligence[instagram]
-     else               → run handle resolution
+     if handle confirmed:
+       posts = apify.actor("instagram-profile-scraper")
+                 .call({ usernames: [handle], resultsLimit: 10 })
+       hash = md5(join(post.caption for post in posts))
+       if hash == social_intelligence[instagram].content_hash:
+         → skip LLM, update timestamps only
+       else:
+         → LLM classifies signals (+ vision LLM for captionless images)
+         → update social_intelligence[instagram]: content_hash=hash, data_found
+     else:
+       → run handle resolution
 
    Legacy.com
-     always → exa.search(
-                query = '"{name}" obituary "{city}"',
-                includeDomains = ["legacy.com"]
-              )
-             → LLM checks for family member matches
-             → update social_intelligence[legacy]
+     raw = exa.search('"{name}" obituary "{city}"', includeDomains=["legacy.com"])
+     hash = md5(raw.text)
+     if hash == social_intelligence[legacy].content_hash:
+       → skip LLM, update timestamps only
+     else:
+       → LLM checks for family member matches
+       → update social_intelligence[legacy]: content_hash=hash, data_found
 
-3. If signals found → set pending_batch = true on that platform entry
+3. If new signals found → set pending_batch = true
 ```
+
+**Result**: Exa/Apify runs daily (cheap). LLM only fires when content actually changed. OpenClaw never involved.
 
 ### Weekly Project — `generate_weekly_project()`
 

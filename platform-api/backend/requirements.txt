@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+httpx
+apscheduler
+exa-py
+apify-client
+openai
+python-dotenv
+pydantic
+pydantic-settings

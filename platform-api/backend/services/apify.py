@@ -1,0 +1,27 @@
+from apify_client import ApifyClient
+from config import settings
+
+_client = ApifyClient(settings.APIFY_API_TOKEN)
+
+# Actor that scrapes public Instagram profiles
+_ACTOR_ID = "apify/instagram-scraper"
+
+
+def run_instagram_scraper(handle: str, results_limit: int = 10) -> list[dict]:
+    run = _client.actor(_ACTOR_ID).call(run_input={
+        "directUrls": [f"https://www.instagram.com/{handle}/"],
+        "resultsType": "posts",
+        "resultsLimit": results_limit,
+        "addParentData": False,
+    })
+    dataset = _client.dataset(run["defaultDatasetId"])
+    posts = []
+    for item in dataset.iterate_items():
+        posts.append({
+            "caption": item.get("caption") or "",
+            "timestamp": item.get("timestamp"),
+            "url": item.get("url") or item.get("shortCode") and f"https://www.instagram.com/p/{item['shortCode']}/",
+            "display_url": item.get("displayUrl"),
+            "likes_count": item.get("likesCount", 0),
+        })
+    return posts
