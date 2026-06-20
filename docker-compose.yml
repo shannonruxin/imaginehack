@@ -13,17 +13,5 @@ services:
       - openclaw-data:/root
     restart: unless-stopped
 
-  baileys:
-    build: ./platform-api/baileys
-    container_name: imaginehack-baileys
-    ports:
-      - "3001:3001"
-    env_file:
-      - .env
-    volumes:
-      - baileys-auth:/app/auth
-    restart: unless-stopped
-
 volumes:
   openclaw-data:
-  baileys-auth:
