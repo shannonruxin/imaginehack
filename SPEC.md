@@ -202,7 +202,7 @@ created_at                      number
 
 - **`persona`** — stable lifestyle classification (family-oriented, frequent-traveler, luxury-lifestyle, etc.). Overwritten after every scan using a cheap LLM call. Advisors see this immediately as context for *how* to talk to the client.
 - **`recent_signals`** — one entry per platform, replaced on each scan (not appended). Stores the last 10 posts/results raw so the batch generator can detect *timely* life events (new baby, job change, travel). Keeps only what's recent and relevant.
-- Valid persona tags: `family-oriented`, `frequent-traveler`, `luxury-lifestyle`, `health-fitness`, `career-driven`, `entrepreneur`, `religious-conservative`, `young-professional`, `outdoor-adventure`, `foodie-lifestyle`.
+- Valid persona tags: `family-oriented`, `frequent-traveler`, `luxury-high-net-worth`, `health-and-fitness`, `career-driven`, `entrepreneur`, `religious-conservative`.
 
 ---
 
@@ -254,7 +254,7 @@ Index: `by_client_id` on `client_id`
 | ----------------------------------- | -------------------------------------------------------- |
 | Add new client                      | `clients` only                                           |
 | Resolve Instagram / LinkedIn handle | `clients.socials[]` — append or update entry             |
-| Scan runs (Exa / Apify)             | `clients.social_intelligence[]` — append new fetch entry |
+| Scan runs (Exa / Apify)             | `clients.recent_signals[]` — replace entry for that platform |
 | Generate weekly batch               | Insert row into `projects` with flagged clients          |
 | Advisor marks client status         | `projects.clients[].status`                              |
 | Advisor sets follow-up date         | `projects.clients[].next_follow_up_scheduled`            |

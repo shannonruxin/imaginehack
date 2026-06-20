@@ -10,6 +10,7 @@
 
 import type * as chatHistory from "../chatHistory.js";
 import type * as clients from "../clients.js";
+import type * as dev from "../dev.js";
 import type * as myFunctions from "../myFunctions.js";
 import type * as outreachBatches from "../outreachBatches.js";
 import type * as projects from "../projects.js";
@@ -25,6 +26,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   chatHistory: typeof chatHistory;
   clients: typeof clients;
+  dev: typeof dev;
   myFunctions: typeof myFunctions;
   outreachBatches: typeof outreachBatches;
   projects: typeof projects;
