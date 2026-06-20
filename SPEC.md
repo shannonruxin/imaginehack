@@ -119,92 +119,82 @@ Stored on client record inside `social_intelligence[]`. Never re-runs unless adv
 
 ## 6. Convex DB Schema
 
+Each table owns one concern. No field is duplicated across tables.
+
+| Table | Owns |
+| --- | --- |
+| `clients` | Identity, profile, insurance, social handles + scan schedule |
+| `signals` | Every detected life event (source of truth) |
+| `outreach_batches` | Weekly auto-generated advisor recommendations |
+| `projects` | Advisor-created campaigns and outreach workflow |
+
+---
+
 ### Table 1: `clients`
 
 ```
-_id                     auto
+_id                           auto
 
 -- Core info
-name                    string
-age                     number
-number                  string              -- WhatsApp number (E.164 format)
-nationality             string
-email                   string
-occupation              string
-income_range            string              -- e.g. "5000-10000"
-website                 string | null
-marital_status          "single" | "married" | "divorced" | "engaged"
-no_of_dependents        number
+name                          string
+age                           number
+number                        string              -- WhatsApp / phone
+nationality                   string
+email                         string
+occupation                    string
+income_range                  string              -- e.g. "5000-10000"
+website                       string | null
+
+-- Personal profile
+marital_status                "single" | "married" | "divorced" | "engaged"
+no_of_dependents              number
 
 -- Insurance
-existing_policies       array of:
-  policy_id               string
-  name                    string
-  type                    string            -- "life" | "medical" | "investment-linked" | "critical-illness"
-  start_date              string            -- ISO date
-  end_date                string | null
-  beneficiaries           string[]
+existing_policies             array of:
+  policy_id                     string
+  name                          string
+  type                          string            -- "life" | "medical" | "investment-linked" | "critical-illness" | etc.
+  start_date                    string            -- ISO date
+  end_date                      string | null
+  beneficiaries                 string[]
 
 -- Goals & opportunities
-financial_goals         array of:
-                          "education_fund" | "retirement" | "housing" | string
-sales_opportunities     string[]            -- advisor notes e.g. "Upgrade term to whole life"
+financial_goals               array of:
+                                "education_fund" | "retirement" | "housing" | string
+sales_opportunities           string[]            -- free text notes e.g. "Upgrade term to whole life"
 
--- Social intelligence (one entry per platform, updated in place by cron)
-social_intelligence     array of:
-  platform                "linkedin" | "instagram" | "legacy"
-  handle                  string | null     -- IG username or LinkedIn URL
-  handle_confidence       "confirmed" | "auto" | "pending" | null
-  last_checked            number | null     -- timestamp
-  next_check              number | null     -- last_checked + 24h
-  content_hash            string | null     -- md5 of last fetched content; LLM skipped if unchanged
-  data_found              array of:
-    signal_type             string          -- "new_job" | "pregnancy" | "family_death" | etc.
-    summary                 string          -- "Posted pregnancy announcement on 17 Jun"
-    detected_at             number          -- timestamp
-  pending_batch           boolean           -- signal found, not yet included in a project
+-- Social intelligence (one entry per platform, updated in place by backend cron)
+social_intelligence           array of:
+  platform                      "linkedin" | "instagram" | "legacy"
+  handle                        string | null     -- username for instagram, profile url for linkedin
+  handle_confidence             "confirmed" | "auto" | "pending" | null
+  last_checked                  number | null     -- timestamp
+  next_check                    number | null     -- last_checked + 24h
+  data_found                    array of:
+    signal_type                   string          -- "new_job" | "pregnancy" | "family_death" | etc.
+    summary                       string          -- "Posted pregnancy announcement on 17 Jun"
+    detected_at                   number          -- timestamp
+  pending_batch                 boolean           -- signals found, not yet batched
 
-created_at              number
+created_at                    number
 ```
 
 ---
 
-### Table 2: `messages`
-
-Stores WhatsApp conversation history for tracked clients only. Written by Baileys service in real-time.
+### Table 2: `projects`
 
 ```
-_id             auto
+_id                           auto
 
-client_id       reference → clients       -- resolved from number on write
-from_me         boolean                   -- true = advisor sent, false = client sent
-timestamp       number                    -- unix timestamp from WA
-text            string | null             -- null for media messages
-type            "text" | "image" | "audio" | "video" | "other"
+name                          string              -- e.g. "June 2026 Young Families Drive"
+sales_angle                   string              -- e.g. "Focus on dependent coverage for new parents"
+created_at                    number
 
-created_at      number
-```
-
-**Filter**: Baileys checks `GET /clients/exists?number=X` before writing. Non-client numbers are discarded.
-
----
-
-### Table 3: `projects`
-
-Advisor-facing outreach campaigns. Auto-created by weekly batch cron or manually by advisor.
-
-```
-_id             auto
-
-name            string                    -- e.g. "June 2026 Young Families Drive"
-sales_angle     string                    -- e.g. "Focus on dependent coverage for new parents"
-created_at      number
-
-clients         array of:
-  client_id       reference → clients
-  notes           string | null           -- per-client notes within this project
-  status          "pending" | "contacted" | "responded" | "closed_won" | "closed_lost"
-  outreached      boolean
+clients                       array of:
+  client_id                     reference → clients
+  notes                         string | null     -- per-client notes within this project
+  status                        "pending" | "contacted" | "responded" | "closed_won" | "closed_lost"
+  outreached                    boolean
 ```
 
 ---
