@@ -508,60 +508,139 @@ OPENCLAW_WEBHOOK_URL=
 
 ## 13. Frontend
 
-**Stack**: React + Vite (or Next.js). Talks to platform API at `http://localhost:8001`.
+**Stack**: Next.js 16, App Router, TypeScript, Tailwind v4, shadcn/ui. Talks to platform API at `http://localhost:8001`.
+
+### Pitch Flow (what the frontend demonstrates)
+
+The demo follows this narrative arc:
+
+1. **WhatsApp data is collected** — show that real chat history from clients is captured and stored
+2. **Big-data view across all clients** — pie charts, pattern spotting, persona distribution; makes the point that at 1000 clients, this analysis is otherwise impossible
+3. **Social listening feeds in** — show raw LinkedIn/Instagram/Legacy signals per client
+4. **Sales angle is enriched** — AI synthesises signals + chat history into a personalised approach angle
+5. **Projects drive action** — weekly batch bundles the highest-urgency clients, each with a tailored angle and a follow-up todo list; advisor ticks off progress in the dashboard
+
+---
 
 ### Routes
 
+Three top-level sections: **Dashboard**, **Clients**, **Projects**. Detail pages hang off Clients and Projects.
+
+---
+
 #### `/` — Dashboard
-Current week's outreach batch.
-- `batch_sales_angle` as the page headline
-- Client list from `GET /projects/current` — name, status chip, approach notes
-- Update status inline → `PATCH /projects/current/clients/:id`
+
+**Purpose**: The advisor's daily view. Shows what needs doing this week.
+
+**Two panels:**
+
+**Left / top — This week's batch (`GET /projects/current`)**
+- `batch_sales_angle` as a headline card — the strategic angle for the whole week
+- Client todo list: name, status chip (`to_follow_up` / `meeting_rescheduled` / `stale` / `help_me_out`), AI-enriched approach notes, next follow-up / meeting date
+- Status editable inline → `PATCH /projects/:id/clients/:client_id`
 - Click client name → `/clients/:id`
 
-#### `/clients` — Client List
-- Table: name, persona tags, last signal date, status in current project
-- Search by name
+**Right / bottom — Project history strip (`GET /projects`)**
+- Compact list of past batches: date + client count
+- Click → `/projects/:id`
+
+---
+
+#### `/clients` — Client Intelligence Hub
+
+**Purpose**: Demonstrates the data flywheel. Two modes toggled at the top: **List** and **Insights**.
+
+##### List mode (default)
+- Full table showing every field from the client schema:
+  - Name, age, nationality, income range, marital status
+  - Persona tags (chips)
+  - Number of dependents, existing policies
+  - Social handles resolved (icons for Instagram / LinkedIn)
+  - Last signal date (most recent `recent_signals` entry)
+  - Status in current project (if present)
+- **Filter bar**: nationality, income range, marital status, persona tags — multi-select dropdowns
+- **Search**: free-text by name / phone / email
+- **LLM query box**: natural language filter — e.g. "show me clients who are new parents with no life cover" → calls `POST /advisor/message { message }` and renders the reply; or we can add a dedicated endpoint later
 - "Add client" button → `/clients/new`
-- Data: `GET /clients`
+
+##### Insights mode (same data, visual analysis)
+Demonstrates that the system has intel across the whole book of clients — the kind of analysis impossible to do manually.
+
+- **Persona tag distribution** — pie/donut chart: what % of clients are "frequent-traveler", "family-oriented", "career-driven", etc.
+- **Income range breakdown** — bar chart
+- **Marital status split** — pie chart
+- **Signal coverage** — how many clients have LinkedIn / Instagram / Legacy resolved (stacked bar)
+- **Policy coverage gap** — clients with no existing policies (highlight as opportunity)
+- All charts computed client-side from `GET /clients` data — no extra endpoints needed
+
+---
 
 #### `/clients/new` — Add Client
-Form fields: first name, last name, age, nationality, income range, phone, email, marital status.
-- Optional inline rows: dependents (relationship, name, age), existing policies (type, name, dates, beneficiaries), socials (instagram/linkedin/website).
+
+Form fields: first name, last name, age, nationality, income range, phone (E.164), email, marital status.
 - Submit → `POST /clients`
-- On success: handle resolution runs in background, redirect to `/clients/:id`
+- On success: handle resolution runs in background; redirect to `/clients/:id`
+
+---
 
 #### `/clients/:id` — Client Detail
+
 Four tabs:
 
 **Overview**
-- Demographics, contact info, marital status, dependents, existing policies
-- Edit inline → `PATCH /clients/:id`
-- Sales opportunities list + "Add note" → `POST /clients/:id/opportunities`
+- Demographics grid: age, nationality, income range, marital status, phone, email
+- Persona card: tags (chips) + summary paragraph (AI-generated, read-only)
+- Dependents list
+- Existing policies list
+- Social handles (with resolve status)
+- Sales opportunities list
 
 **Signals**
-- Persona tags + summary (read-only — backend-generated via `gpt-4o-mini`)
-- Recent signals per platform: LinkedIn snippet, last 3 IG posts (caption + timestamp), Legacy results
-- "Refresh" per platform → `POST /workers/scan-linkedin` / `scan-instagram` / `scan-legacy` (fires for all clients; acceptable for demo)
+- Per-platform cards: LinkedIn snippet, last 3 Instagram posts (caption + timestamp), Legacy.com results
+- Each card shows `date_fetched` and raw content (collapsible if long)
+- "Refresh" button per platform → `POST /workers/scan-linkedin` / `scan-instagram` / `scan-legacy`
 
-**Chat History**
-- Read-only WhatsApp log from `GET /clients/:id/chat-history`
-- Chronological thread, client vs advisor messages visually distinct
+**Chat**
+- WhatsApp conversation thread from `GET /clients/:id/chat-history`
+- Client messages left-aligned, advisor messages right-aligned
+- Timestamps
 
-**Approach Angle**
-- "Suggest angle" button → `POST /advisor/suggest-angle { client_id }`
-- Shows `angle` prominently, collapsible `reasoning`
+**Angle**
+- "Suggest approach angle" → `POST /advisor/suggest-angle { client_id }`
+- `angle` shown prominently
+- `reasoning` collapsible below
+
+---
 
 #### `/projects` — Project History
-- List all projects newest first → `GET /projects`
-- Each row: date, `batch_sales_angle` excerpt, client count
+
+- List of all batches newest first → `GET /projects`
+- Each row: week date, `batch_sales_angle` excerpt, client count, status breakdown (how many to_follow_up / done / stale)
 - Click → `/projects/:id`
 
+---
+
 #### `/projects/:id` — Project Detail
-- `batch_sales_angle` at top
-- Client table: name, status, notes, follow-up date, meeting date
-- Edit status/notes/dates inline → `PATCH /projects/:id/clients/:client_id`
-- "Enrich all" button → `POST /projects/:id/enrich`
+
+**Purpose**: The work-tracker for a specific weekly batch.
+
+- `batch_sales_angle` headline card at top — the strategic angle for this batch
+- "Enrich all" button → `POST /projects/:id/enrich` (re-generates personalised notes for every client)
+- Client table:
+  - Name (links to `/clients/:id`)
+  - AI-enriched approach notes
+  - Status chip + inline dropdown to update → `PATCH /projects/:id/clients/:client_id`
+  - Next follow-up date (editable)
+  - Next meeting date (editable)
+- Progress summary: X of Y followed up, Z meetings scheduled
+
+---
+
+### Component Notes
+
+- Charts (Insights mode): use `recharts` — lightweight, works with Next.js client components, no build issues
+- No server-side data fetching — all pages are `'use client'` with `useEffect`, keeping the data model simple
+- Status changes are optimistic: update local state immediately, patch in background
 
 ---
 

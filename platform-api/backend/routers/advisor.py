@@ -16,6 +16,10 @@ class SuggestAngle(BaseModel):
     client_id: str
 
 
+class ClientQuery(BaseModel):
+    query: str
+
+
 @router.post("/message")
 def advisor_message(body: AdvisorMessage):
     intent = llm.classify_intent(body.message)
@@ -30,6 +34,12 @@ def advisor_message(body: AdvisorMessage):
         reply = advisor_llm.handle_freeform(body.message)
 
     return {"reply": reply, "intent": intent}
+
+
+@router.post("/query-clients")
+def query_clients(body: ClientQuery):
+    clients = convex.list_clients() or []
+    return llm.query_clients(body.query, clients)
 
 
 @router.post("/suggest-angle")

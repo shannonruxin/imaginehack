@@ -9,7 +9,10 @@ _model = settings.LLM_MODEL
 def _get_client() -> OpenAI:
     global _client
     if _client is None:
-        _client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        _client = OpenAI(
+            api_key=settings.GEMINI_API_KEY,
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        )
     return _client
 
 
@@ -195,6 +198,43 @@ def suggest_approach_angle(client: dict, messages: list[dict], recent_signals: l
     raw = _chat([{"role": "system", "content": system}, {"role": "user", "content": user}])
     data = json.loads(raw)
     return {"angle": data.get("angle", ""), "reasoning": data.get("reasoning", "")}
+
+
+def freeform_reply(message: str) -> str:
+    system = "You are an AI assistant for a life insurance advisor. Answer concisely and helpfully."
+    raw = _chat([{"role": "system", "content": system}, {"role": "user", "content": message}], response_format="text")
+    return raw
+
+
+def query_clients(query: str, clients: list[dict]) -> dict:
+    """Natural language filter over the client list. Returns matching client IDs + explanation."""
+    client_summaries = []
+    for c in clients:
+        persona = c.get("persona") or {}
+        has_policies = len(c.get("existing_policies", [])) > 0
+        signals = [s["platform"] for s in c.get("recent_signals", [])]
+        client_summaries.append({
+            "id": c["_id"],
+            "name": f"{c.get('first_name', '')} {c.get('last_name', '')}".strip(),
+            "age": c.get("age"),
+            "marital_status": c.get("marital_status"),
+            "income_range": c.get("income_range"),
+            "persona_tags": persona.get("tags", []),
+            "num_dependents": len(c.get("dependents", [])),
+            "has_policies": has_policies,
+            "signals": signals,
+        })
+    system = (
+        "You are a data analyst for a life insurance advisor. "
+        "Given a list of clients and a natural language query, return JSON with: "
+        "'matching_ids': list of matching client _id strings, "
+        "'explanation': one sentence explaining what you matched on. "
+        "Be inclusive — if unsure, include the client."
+    )
+    user = f"Query: {query}\n\nClients:\n{json.dumps(client_summaries)}"
+    raw = _chat([{"role": "system", "content": system}, {"role": "user", "content": user}])
+    data = json.loads(raw)
+    return {"matching_ids": data.get("matching_ids", []), "explanation": data.get("explanation", "")}
 
 
 def classify_intent(advisor_message: str) -> str:

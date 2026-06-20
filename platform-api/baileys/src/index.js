@@ -6,6 +6,7 @@ const {
   DisconnectReason,
   fetchLatestBaileysVersion,
 } = require("@whiskeysockets/baileys");
+const qrcode = require("qrcode-terminal");
 const pino = require("pino");
 const { isTrackedClient } = require("./filter");
 const { postMessage } = require("./poster");
@@ -23,12 +24,13 @@ async function connectToWA() {
     version,
     auth: state,
     logger: pino({ level: "silent" }),
-    printQRInTerminal: true,
+    printQRInTerminal: false,
   });
 
   sock.ev.on("creds.update", saveCreds);
 
   sock.ev.on("connection.update", ({ connection, lastDisconnect, qr }) => {
+    if (qr) qrcode.generate(qr, { small: true });
     if (connection === "close") {
       const shouldReconnect =
         lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;

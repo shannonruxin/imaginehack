@@ -38,6 +38,12 @@ export const enrichProject = (id: string) =>
   req(`/projects/${id}/enrich`, { method: "POST" });
 
 // Advisor
+export const queryClients = (query: string) =>
+  req<{ matching_ids: string[]; explanation: string }>("/advisor/query-clients", {
+    method: "POST",
+    body: JSON.stringify({ query }),
+  });
+
 export const suggestAngle = (clientId: string) =>
   req<{ angle: string; reasoning: string }>("/advisor/suggest-angle", {
     method: "POST",

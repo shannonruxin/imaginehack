@@ -53,17 +53,4 @@ def handle_weekly_batch(advisor_message: str) -> str:
 
 
 def handle_freeform(advisor_message: str) -> str:
-    from openai import OpenAI
-    from config import settings
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
-    resp = client.chat.completions.create(
-        model=settings.LLM_MODEL,
-        messages=[
-            {"role": "system", "content": (
-                "You are an AI assistant for a life insurance advisor. "
-                "Answer questions concisely and helpfully."
-            )},
-            {"role": "user", "content": advisor_message},
-        ],
-    )
-    return resp.choices[0].message.content
+    return llm.freeform_reply(advisor_message)
