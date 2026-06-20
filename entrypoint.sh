@@ -1,6 +1,16 @@
 #!/bin/bash
 set -e
 
+# Sync the version-controlled ImagineHack skill into the /root volume on every
+# start (the named volume shadows whatever the image baked into /root).
+SKILL_SRC="/opt/imaginehack/plugin-skills"
+SKILL_DST="/root/.openclaw/plugin-skills"
+if [ -d "$SKILL_SRC" ]; then
+  mkdir -p "$SKILL_DST"
+  cp -r "$SKILL_SRC/." "$SKILL_DST/"
+  echo "[entrypoint] synced imaginehack plugin-skills into $SKILL_DST"
+fi
+
 WORKSPACE_MCP_DIR="/root/.openclaw/mcp/google-workspace"
 WORKSPACE_LOG="/tmp/google-workspace-mcp.log"
 

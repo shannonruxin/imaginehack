@@ -38,25 +38,26 @@ OpenClaw passes everything verbatim to the backend. The backend handles intent:
 
 ---
 
-## Skill to Add
+## Skill (version-controlled)
 
-Create at `/root/.openclaw/plugin-skills/imaginehack/SKILL.md`:
+The skill lives in the repo at `openclaw/plugin-skills/imaginehack/SKILL.md` and
+is synced into the container at `/root/.openclaw/plugin-skills/imaginehack/SKILL.md`
+on every start (see Dockerfile `COPY openclaw/plugin-skills /opt/imaginehack/plugin-skills`
+and the sync block in `entrypoint.sh`). `/root` is a named volume, so the skill
+is staged at `/opt/...` and copied in at runtime rather than baked into `/root`.
 
-```markdown
-# ImagineHack Sales Intelligence
+The skill forwards each advisor message to the backend and relays the reply. Note
+the actual backend payload is `{ message, advisor_id }` (the backend extracts any
+client name from the full text itself — the skill does **not** parse names):
 
-You are assisting a life insurance advisor. When they send any message:
-
-1. Extract the client name if one is mentioned (e.g. "remind me about Raina" → client_name = "Raina")
-2. POST to http://backend:8000/advisor/message:
-   {
-     "advisor_message": "<their exact message>",
-     "client_name": "<extracted name or null>"
-   }
-3. Send back the `reply` field from the response exactly as returned.
-
-Do not add your own commentary. Do not modify the reply. Just send it.
+```jsonc
+// POST {PLATFORM_API_URL}/advisor/message
+{ "message": "<advisor's exact message>", "advisor_id": "<wa id or \"default\">" }
+// → { "reply": "...", "intent": "..." }
 ```
+
+`PLATFORM_API_URL` is set in `.env` (default `http://backend:8000`). The skill
+sends the `reply` field back to the advisor verbatim.
 
 ---
 

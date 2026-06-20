@@ -6,6 +6,10 @@ _client = OpenAI(api_key=settings.OPENAI_API_KEY)
 _model = settings.LLM_MODEL
 
 
+def _name(client: dict) -> str:
+    return client.get("name") or f"{client.get('first_name', '')} {client.get('last_name', '')}".strip()
+
+
 def _chat(messages: list[dict], response_format: str = "json") -> str:
     resp = _client.chat.completions.create(
         model=_model,
@@ -30,7 +34,7 @@ def classify_signals(client: dict, platform: str, content: str) -> dict:
         "'signals' (list of signal names from the provided list) and 'no_signal' (boolean)."
     )
     user = (
-        f"Client: {client.get('name')}, {client.get('city', '')}\n"
+        f"Client: {_name(client)}\n"
         f"Platform: {platform}\n"
         f"Content:\n{content[:4000]}\n\n"
         f"Valid signals: {', '.join(LIFE_EVENT_SIGNALS)}"
@@ -56,7 +60,7 @@ def classify_signals_vision(client: dict, image_url: str) -> dict:
         messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": [
-                {"type": "text", "text": f"Client: {client.get('name')}, {client.get('city', '')}"},
+                {"type": "text", "text": f"Client: {_name(client)}"},
                 {"type": "image_url", "image_url": {"url": image_url}},
             ]},
         ],
@@ -75,8 +79,7 @@ def score_handle_candidate(candidate_text: str, client: dict) -> int:
         "Return JSON with key 'score' (integer 0-10)."
     )
     user = (
-        f"Person: {client.get('name')}, works at {client.get('company', 'unknown')}, "
-        f"lives in {client.get('city', 'unknown')}\n\n"
+        f"Person: {_name(client)}\n\n"
         f"Profile snippet:\n{candidate_text[:2000]}"
     )
     raw = _chat([{"role": "system", "content": system}, {"role": "user", "content": user}])
@@ -91,10 +94,10 @@ def synthesize_client_context(client: dict, messages: list[dict]) -> str:
         "Be concise — focus on what the advisor needs to know before reaching out."
     )
     msg_text = "\n".join(
-        f"[{m.get('timestamp', '')}] {m.get('direction', '')}: {m.get('body', '')}"
+        f"[{m.get('timestamp', '')}] {m.get('sender', '')}: {m.get('message', '')}"
         for m in messages[-20:]
     )
-    user = f"Client: {client.get('name')}\nRecent messages:\n{msg_text}"
+    user = f"Client: {_name(client)}\nRecent messages:\n{msg_text}"
     resp = _client.chat.completions.create(
         model=_model,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -112,6 +115,29 @@ def generate_batch_angle(clients_and_signals: list[dict]) -> dict:
     user = json.dumps(clients_and_signals, indent=2)
     raw = _chat([{"role": "system", "content": system}, {"role": "user", "content": user}])
     return json.loads(raw)
+
+
+def suggest_approach_angle(client: dict, messages: list[dict], social_intelligence: list[dict]) -> dict:
+    system = (
+        "You are a life insurance sales strategist. Given a client's recent WhatsApp "
+        "conversation and their latest social intelligence (life events), suggest the best "
+        "way for the advisor to approach them. Reference prior conversation when relevant. "
+        "Return JSON with keys: 'angle' (1-2 sentence approach) and 'reasoning' (why)."
+    )
+    msg_text = "\n".join(
+        f"{m.get('sender', '')}: {m.get('message', '')}" for m in messages[-20:]
+    )
+    si_text = "\n".join(
+        f"[{e.get('platform', '')}] {e.get('content', '')[:1000]}" for e in social_intelligence[-5:]
+    )
+    user = (
+        f"Client: {_name(client)}\n\n"
+        f"Recent conversation:\n{msg_text or '(none)'}\n\n"
+        f"Social intelligence:\n{si_text or '(none)'}"
+    )
+    raw = _chat([{"role": "system", "content": system}, {"role": "user", "content": user}])
+    data = json.loads(raw)
+    return {"angle": data.get("angle", ""), "reasoning": data.get("reasoning", "")}
 
 
 def classify_intent(advisor_message: str) -> str:

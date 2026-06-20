@@ -6,16 +6,17 @@ def handle_client_summary(advisor_message: str) -> str:
     clients = convex.list_clients() or []
     matched = None
     for c in clients:
-        if c.get("name", "").lower() in advisor_message.lower():
+        if convex.client_name(c).lower() in advisor_message.lower():
             matched = c
             break
 
     if not matched:
         return "I couldn't identify which client you're asking about. Please mention their name."
 
-    messages = convex.get_messages_by_client(matched["_id"]) or []
+    history = convex.get_chat_history(matched["_id"]) or {}
+    messages = history.get("messages", [])
     summary = llm.synthesize_client_context(matched, messages)
-    return f"*{matched['name']}*\n{summary}"
+    return f"*{convex.client_name(matched)}*\n{summary}"
 
 
 def handle_set_handle(advisor_message: str) -> str:
@@ -29,11 +30,12 @@ def handle_set_handle(advisor_message: str) -> str:
         if m:
             client_name = m.group(1).strip()
             handle = m.group(2).strip().lstrip("@")
-            matched = next((c for c in clients if c.get("name", "").lower() == client_name.lower()), None)
+            matched = next(
+                (c for c in clients if convex.client_name(c).lower() == client_name.lower()), None
+            )
             if matched:
-                field = "instagram_handle" if platform == "instagram" else "linkedin_url"
-                convex.update_client(matched["_id"], {field: handle})
-                return f"Updated {platform} handle for {matched['name']} to {handle}."
+                convex.add_social(matched["_id"], platform, handle)
+                return f"Updated {platform} handle for {convex.client_name(matched)} to {handle}."
             return f"Couldn't find client '{client_name}'."
 
     return "I couldn't parse the handle update. Try: 'set instagram handle for John Doe to @johndoe'"

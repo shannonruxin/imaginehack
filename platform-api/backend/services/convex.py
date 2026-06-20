@@ -26,7 +26,7 @@ def mutation(fn: str, args: dict = {}) -> Any:
     return _post("/api/mutation", {"path": fn, "args": args, "format": "json"})
 
 
-# --- per-table helpers ---
+# --- clients ---
 
 def get_client_by_number(number: str):
     return query("clients:getByNumber", {"number": number})
@@ -37,60 +37,101 @@ def get_client_by_id(id: str):
 
 
 def list_clients():
-    return query("clients:list", {})
+    return query("clients:getAll", {})
 
 
-def insert_message(data: dict):
-    return mutation("messages:insert", data)
+def insert_client(data: dict):
+    return mutation("clients:create", data)
 
 
-def upsert_social_intelligence(client_id: str, platform: str, data: dict):
-    return mutation("socialIntelligence:upsert", {
-        "clientId": client_id,
-        "platform": platform,
-        **data,
+def update_client(id: str, fields: dict):
+    return mutation("clients:update", {"id": id, **fields})
+
+
+def add_social(id: str, type: str, value: str):
+    return mutation("clients:addSocial", {"id": id, "type": type, "value": value})
+
+
+def add_dependent(id: str, relationship: str, first_name: str, last_name: str, age: int | None = None):
+    args = {"id": id, "relationship": relationship, "first_name": first_name, "last_name": last_name}
+    if age is not None:
+        args["age"] = age
+    return mutation("clients:addDependent", args)
+
+
+def add_sales_opportunity(id: str, description: str):
+    return mutation("clients:addSalesOpportunity", {"id": id, "description": description})
+
+
+def append_social_intelligence(id: str, platform: str, content: str):
+    return mutation("clients:appendSocialIntelligence", {
+        "id": id, "platform": platform, "content": content,
     })
 
 
-def get_social_intelligence(client_id: str, platform: str):
-    return query("socialIntelligence:get", {"clientId": client_id, "platform": platform})
+# --- chat history (OpenClaw conversation log) ---
+
+def append_message(client_id: str, sender: str, message: str, timestamp: int):
+    return mutation("chatHistory:appendMessage", {
+        "client_id": client_id, "sender": sender, "message": message, "timestamp": timestamp,
+    })
 
 
-def get_messages_by_client(client_id: str, limit: int = 50):
-    return query("messages:listByClient", {"clientId": client_id, "limit": limit})
+def get_chat_history(client_id: str):
+    return query("chatHistory:getByClient", {"client_id": client_id})
 
 
-def insert_project(data: dict):
-    return mutation("projects:insert", data)
-
+# --- projects (weekly outreach todo list) ---
 
 def list_projects():
-    return query("projects:list", {})
+    return query("projects:getAll", {})
+
+
+def get_current_project():
+    return query("projects:getCurrent", {})
 
 
 def get_project(id: str):
     return query("projects:getById", {"id": id})
 
 
-def update_project_client_status(project_id: str, client_id: str, status: str):
-    return mutation("projects:updateClientStatus", {
-        "projectId": project_id,
-        "clientId": client_id,
-        "status": status,
-    })
+def insert_project(data: dict):
+    return mutation("projects:create", data)
 
 
-def insert_client(data: dict):
-    return mutation("clients:insert", data)
+def update_project_client_status(
+    id: str,
+    client_id: str,
+    status: str,
+    notes: str | None = None,
+    next_follow_up_scheduled: str | None = None,
+    next_meeting_scheduled: str | None = None,
+):
+    args = {"id": id, "client_id": client_id, "status": status}
+    if notes is not None:
+        args["notes"] = notes
+    if next_follow_up_scheduled is not None:
+        args["next_follow_up_scheduled"] = next_follow_up_scheduled
+    if next_meeting_scheduled is not None:
+        args["next_meeting_scheduled"] = next_meeting_scheduled
+    return mutation("projects:updateClientStatus", args)
 
 
-def update_client(id: str, data: dict):
-    return mutation("clients:update", {"id": id, **data})
+# --- pure helpers over the client doc (no network) ---
+
+def client_name(client: dict) -> str:
+    return f"{client.get('first_name', '')} {client.get('last_name', '')}".strip()
 
 
-def get_clients_pending_batch():
-    return query("clients:listPendingBatch", {})
+def social_value(client: dict, type: str) -> str | None:
+    for s in client.get("socials") or []:
+        if s.get("type") == type:
+            return s.get("value")
+    return None
 
 
-def set_clients_batch_done(client_ids: list[str]):
-    return mutation("clients:setBatchDone", {"clientIds": client_ids})
+def latest_social_intelligence(client: dict, platform: str) -> dict | None:
+    entries = [e for e in (client.get("social_intelligence") or []) if e.get("platform") == platform]
+    if not entries:
+        return None
+    return max(entries, key=lambda e: e.get("date_fetched", 0))

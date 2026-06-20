@@ -1,15 +1,14 @@
-import asyncio
 from services import exa, llm, convex
 
 
 def resolve_handles(client: dict) -> None:
-    name = client["name"]
-    company = client.get("company", "")
-    city = client.get("city", "")
+    name = convex.client_name(client)
     client_id = client["_id"]
+    if not name:
+        return
 
-    li_candidates = exa.search_linkedin(name, company, city)
-    ig_candidates = exa.search_instagram(name, company, city)
+    li_candidates = exa.search_linkedin(name)
+    ig_candidates = exa.search_instagram(name)
 
     def _pick_best(candidates: list[dict]) -> tuple[str | None, int]:
         if not candidates:
@@ -24,31 +23,11 @@ def resolve_handles(client: dict) -> None:
     li_url, li_score = _pick_best(li_candidates)
     ig_url, ig_score = _pick_best(ig_candidates)
 
-    def _confidence(score: int) -> str:
-        if score >= 6:
-            return "auto"
-        if score >= 3:
-            return "pending"
-        return "low"
+    # HIGH confidence (>=6) → auto-store into socials[]. Lower scores left for advisor confirm.
+    if li_url and li_score >= 6:
+        convex.add_social(client_id, "linkedin", li_url)
 
-    if li_url:
-        conf = _confidence(li_score)
-        if conf != "low":
-            convex.upsert_social_intelligence(client_id, "linkedin", {
-                "handle": li_url,
-                "confidence": conf,
-            })
-            if conf == "auto":
-                convex.update_client(client_id, {"linkedin_url": li_url})
-
-    if ig_url:
-        conf = _confidence(ig_score)
-        # extract handle from URL: https://www.instagram.com/{handle}/
-        ig_handle = ig_url.rstrip("/").split("/")[-1] if ig_url else None
-        if conf != "low" and ig_handle:
-            convex.upsert_social_intelligence(client_id, "instagram", {
-                "handle": ig_handle,
-                "confidence": conf,
-            })
-            if conf == "auto":
-                convex.update_client(client_id, {"instagram_handle": ig_handle})
+    if ig_url and ig_score >= 6:
+        ig_handle = ig_url.rstrip("/").split("/")[-1]
+        if ig_handle:
+            convex.add_social(client_id, "instagram", ig_handle)

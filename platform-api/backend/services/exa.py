@@ -59,7 +59,7 @@ def search_legacy(name: str, city: str, family_members: list[str] = []) -> list[
     seen = set()
     results = []
     for member in targets:
-        query = f'"{member}" obituary "{city}"'
+        query = f'"{member}" obituary "{city}"' if city else f'"{member}" obituary'
         for r in search(query, num_results=3, include_domains=["legacy.com"]):
             if r["url"] not in seen:
                 seen.add(r["url"])
