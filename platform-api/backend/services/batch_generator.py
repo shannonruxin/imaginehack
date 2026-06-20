@@ -11,7 +11,7 @@ def generate_weekly_project() -> None:
     clients_and_signals = []
     for client in clients:
         recent = [
-            e for e in (client.get("social_intelligence") or [])
+            e for e in (client.get("recent_signals") or [])
             if e.get("date_fetched", 0) > cutoff
         ]
         if not recent:
@@ -26,10 +26,13 @@ def generate_weekly_project() -> None:
         if not signals:
             continue
 
+        persona = client.get("persona") or {}
         clients_and_signals.append({
             "client_id": client["_id"],
             "name": convex.client_name(client),
             "signals": signals,
+            "persona_summary": persona.get("summary", ""),
+            "persona_tags": persona.get("tags", []),
         })
 
     if not clients_and_signals:

@@ -63,9 +63,17 @@ def add_sales_opportunity(id: str, description: str):
     return mutation("clients:addSalesOpportunity", {"id": id, "description": description})
 
 
-def append_social_intelligence(id: str, platform: str, content: str):
-    return mutation("clients:appendSocialIntelligence", {
+def set_recent_signals(id: str, platform: str, content: str):
+    """Replace the latest scan entry for one platform; other platforms untouched."""
+    return mutation("clients:setRecentSignals", {
         "id": id, "platform": platform, "content": content,
+    })
+
+
+def update_persona(id: str, tags: list[str], summary: str):
+    """Overwrite the global persona classification for a client."""
+    return mutation("clients:updatePersona", {
+        "id": id, "tags": tags, "summary": summary,
     })
 
 
@@ -130,8 +138,7 @@ def social_value(client: dict, type: str) -> str | None:
     return None
 
 
-def latest_social_intelligence(client: dict, platform: str) -> dict | None:
-    entries = [e for e in (client.get("social_intelligence") or []) if e.get("platform") == platform]
-    if not entries:
-        return None
-    return max(entries, key=lambda e: e.get("date_fetched", 0))
+def get_recent_signal(client: dict, platform: str) -> dict | None:
+    """Return the latest scan entry for one platform from the client doc (no network)."""
+    entries = [e for e in (client.get("recent_signals") or []) if e.get("platform") == platform]
+    return max(entries, key=lambda e: e.get("date_fetched", 0)) if entries else None

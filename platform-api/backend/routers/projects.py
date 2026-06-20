@@ -57,7 +57,7 @@ def enrich_project(id: str):
             continue
         history = convex.get_chat_history(client_id) or {}
         result = llm.suggest_approach_angle(
-            client, history.get("messages", []), client.get("social_intelligence", []),
+            client, history.get("messages", []), client.get("recent_signals", []),
         )
         convex.update_project_client_status(
             id, client_id, entry.get("status", "to_follow_up"), notes=result["angle"],

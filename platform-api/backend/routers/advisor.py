@@ -39,5 +39,4 @@ def suggest_angle(body: SuggestAngle):
         raise HTTPException(404, "Client not found")
     history = convex.get_chat_history(body.client_id) or {}
     messages = history.get("messages", [])
-    si = client.get("social_intelligence", [])
-    return llm.suggest_approach_angle(client, messages, si)
+    return llm.suggest_approach_angle(client, messages, client.get("recent_signals", []))

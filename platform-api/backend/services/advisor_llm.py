@@ -15,8 +15,13 @@ def handle_client_summary(advisor_message: str) -> str:
 
     history = convex.get_chat_history(matched["_id"]) or {}
     messages = history.get("messages", [])
+    persona = matched.get("persona") or {}
+    persona_line = ""
+    if persona.get("summary"):
+        tags = ", ".join(persona.get("tags", []))
+        persona_line = f"_Persona: {persona['summary']}_ ({tags})\n"
     summary = llm.synthesize_client_context(matched, messages)
-    return f"*{convex.client_name(matched)}*\n{summary}"
+    return f"*{convex.client_name(matched)}*\n{persona_line}{summary}"
 
 
 def handle_set_handle(advisor_message: str) -> str:

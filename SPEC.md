@@ -183,20 +183,26 @@ sales_opportunities             array of:
   created_at                      number            -- timestamp
   description                     string            -- e.g. "Consider education endowment for first child"
 
--- Social intelligence (append-only fetch log — one entry per scan run)
-social_intelligence             array of:
-  date_fetched                    number            -- timestamp
+-- Global persona (overwritten after each scan — cheap LLM classification)
+persona                         object | null
+  tags                            array of string   -- e.g. ["family-oriented", "frequent-traveler"]
+  summary                         string            -- one-sentence lifestyle summary for advisor
+  updated_at                      number            -- timestamp
+
+-- Recent signals (latest scan per platform — replaced on each scan, max 10 posts each)
+recent_signals                  array of:
+  date_fetched                    number            -- timestamp of scan run
   platform                        "linkedin" | "instagram" | "legacy"
-  content                         string            -- raw JSON string of what Exa / Apify returned
+  content                         string            -- raw JSON string of what Exa / Apify returned (last 10 posts)
 
 created_at                      number
 ```
 
-**Notes on `social_intelligence`**:
+**Notes on `persona` vs `recent_signals`**:
 
-- Each cron scan appends a new entry — never overwrites.
-- `content` stores whatever Exa or Apify returned verbatim (serialised JSON string), so the LLM prompt always has the raw source to reason about.
-- The LLM reads the latest entry per platform to detect signals. Older entries are retained for history.
+- **`persona`** — stable lifestyle classification (family-oriented, frequent-traveler, luxury-lifestyle, etc.). Overwritten after every scan using a cheap LLM call. Advisors see this immediately as context for *how* to talk to the client.
+- **`recent_signals`** — one entry per platform, replaced on each scan (not appended). Stores the last 10 posts/results raw so the batch generator can detect *timely* life events (new baby, job change, travel). Keeps only what's recent and relevant.
+- Valid persona tags: `family-oriented`, `frequent-traveler`, `luxury-lifestyle`, `health-fitness`, `career-driven`, `entrepreneur`, `religious-conservative`, `young-professional`, `outdoor-adventure`, `foodie-lifestyle`.
 
 ---
 
@@ -336,7 +342,7 @@ Monday 06:00 AM  →  generate_weekly_project()
 
 ### Daily Scan — `scan_due_clients()`
 
-Exa and Apify fetch content daily. LLM only runs if content changed since last scan (hash check on `content`). This keeps OpenClaw out of scanning entirely.
+Exa and Apify fetch content daily and always store it (no hash-check). After each platform scan, a cheap LLM call refreshes the client's `persona`. This keeps the pipeline simple and persona always current.
 
 ```
 1. Query all clients
@@ -346,53 +352,38 @@ Exa and Apify fetch content daily. LLM only runs if content changed since last s
    LinkedIn
      find entry in socials[] where type == "linkedin"
      if found:
-       raw = exa.search(query=site:{value}, text=true)
-       hash = md5(raw.text)
-       last_entry = latest social_intelligence[] where platform == "linkedin"
-       if hash == md5(last_entry.content):
-         → skip LLM, no new entry written
-       else:
-         → LLM classifies signals from raw.text
-         → append to social_intelligence[]: { date_fetched, platform: "linkedin", content: json_str(raw) }
+       raw = exa.fetch_linkedin_profile(value)  -- Exa search on the profile URL
+       → set recent_signals[platform="linkedin"] = { date_fetched, content: json_str(raw) }
+         (replaces previous linkedin entry)
+       → classify_persona(client, all recent_signals) → update client.persona
      else:
        → run handle resolution
 
    Instagram
      find entry in socials[] where type == "instagram"
      if found:
-       posts = apify.actor("instagram-profile-scraper")
-                 .call({ usernames: [value], resultsLimit: 10 })
-       hash = md5(join(post.caption for post in posts))
-       last_entry = latest social_intelligence[] where platform == "instagram"
-       if hash == md5(last_entry.content):
-         → skip LLM, no new entry written
-       else:
-         → LLM classifies signals (+ vision LLM for captionless images)
-         → append to social_intelligence[]: { date_fetched, platform: "instagram", content: json_str(posts) }
+       posts = apify.run_instagram_scraper(handle, results_limit=10)
+       → set recent_signals[platform="instagram"] = { date_fetched, content: json_str(posts) }
+       → classify_persona(client, all recent_signals) → update client.persona
      else:
        → run handle resolution
 
    Legacy.com
-     name = first_name + " " + last_name
-     raw = exa.search('"{name}" obituary', includeDomains=["legacy.com"])
-     hash = md5(raw.text)
-     last_entry = latest social_intelligence[] where platform == "legacy"
-     if hash == md5(last_entry.content):
-       → skip LLM, no new entry written
-     else:
-       → LLM checks for dependent name matches
-       → append to social_intelligence[]: { date_fetched, platform: "legacy", content: json_str(raw) }
+     name = first_name + " " + last_name (+ dependent names)
+     raw = exa.search_legacy(name, family_members)
+     → set recent_signals[platform="legacy"] = { date_fetched, content: json_str(raw) }
+     → classify_persona(client, all recent_signals) → update client.persona
 
-3. If new signals found → flag client for batch inclusion
+3. Batch generator reads recent_signals to detect timely life events
 ```
 
-**Result**: Exa/Apify runs daily (cheap). LLM only fires when content actually changed.
+**Result**: Exa/Apify runs daily (cheap, no hash logic). Persona LLM fires once per platform per scan (cheap model, few tokens). Batch LLM fires once per week for signal detection + angle generation.
 
 ### Weekly Project — `generate_weekly_project()`
 
 ```
-1. For each client, read the latest social_intelligence[] entries per platform
-   LLM extracts signals and scores urgency:
+1. For each client, read recent_signals[] (all platforms) for entries newer than last project's created_at
+   LLM extracts timely signals and scores urgency (also includes persona in context):
      family_death, pregnancy          → HIGH
      new_baby, marriage, new_home     → HIGH
      new_job, promotion               → MEDIUM
@@ -480,10 +471,10 @@ Vision LLM fires for Instagram images with no caption text.
 2. **Python API skeleton** — FastAPI, all endpoints stubbed
 3. **Baileys service** — session, message filter, POST to backend
 4. **Handle resolution** — Exa search + LLM scoring + append to `socials[]`
-5. **LinkedIn scanner** — Exa fetch → append to `social_intelligence[]` → LLM signal detection
-6. **Instagram scanner** — Apify fetch → append to `social_intelligence[]` → LLM (+ vision for images)
-7. **Legacy.com scanner** — Exa fetch → append to `social_intelligence[]` → LLM family match
-8. **Weekly batch** — read latest social_intelligence per client → write project → notify
+5. **LinkedIn scanner** — Exa fetch → `set_recent_signals("linkedin")` → cheap `classify_persona` LLM → update `client.persona`
+6. **Instagram scanner** — Apify fetch (last 10 posts) → `set_recent_signals("instagram")` → `classify_persona` → update `client.persona`
+7. **Legacy.com scanner** — Exa fetch → `set_recent_signals("legacy")` → `classify_persona` → update `client.persona`
+8. **Weekly batch** — read `recent_signals` per client (since last batch) → LLM signal detection → write project with persona-aware notes → notify
 9. **Advisor intent handler** — `/advisor/message` → LLM routes and responds
 10. **OpenClaw wiring** — single skill: receive msg → POST to backend → reply
 
@@ -523,6 +514,6 @@ OPENCLAW_WEBHOOK_URL=
 - **Legacy.com quality** — depends on having known dependent/family member names. Prompt advisor during client onboarding.
 - **Apify free tier** — 5 crawls/month. For demo, trigger per client manually rather than bulk daily scan.
 - **Baileys session** — QR scan required on first run. Session persisted to disk, auto-reconnects on pod restart.
-- **social_intelligence append-only** — each scan creates a new row in the array. No overwrites. This preserves fetch history and lets the LLM compare across time if needed.
+- **`persona` vs `recent_signals` split** — `persona` is the stable, advisor-facing lifestyle summary (overwritten each scan via a cheap LLM). `recent_signals` is the timely raw content (one entry per platform, replaced each scan, max 10 posts). The two layers serve different jobs: persona shapes *how* the advisor talks; recent signals determine *when* to act.
 - **Message backfill** — for clients added after Baileys was running, only future messages are captured.
 

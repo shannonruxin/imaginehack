@@ -1,6 +1,5 @@
-import hashlib
 import json
-from services import exa, convex
+from services import exa, llm, convex
 
 
 def scan_legacy(client: dict) -> None:
@@ -18,12 +17,17 @@ def scan_legacy(client: dict) -> None:
     if not results:
         return
 
-    joined = "\n".join(r.get("text") or r.get("title", "") for r in results)
-    content_hash = hashlib.md5(joined.encode()).hexdigest()
-    latest = convex.latest_social_intelligence(client, "legacy")
-    if latest and hashlib.md5((latest.get("content") or "").encode()).hexdigest() == content_hash:
-        return
-
-    convex.append_social_intelligence(
-        client["_id"], "legacy", json.dumps({"results": results}),
+    convex.set_recent_signals(
+        client["_id"], "legacy",
+        json.dumps({"results": results}),
     )
+    _refresh_persona(client["_id"])
+
+
+def _refresh_persona(client_id: str) -> None:
+    client = convex.get_client_by_id(client_id)
+    if not client:
+        return
+    result = llm.classify_persona(client, client.get("recent_signals") or [])
+    if result["tags"] or result["summary"]:
+        convex.update_persona(client_id, result["tags"], result["summary"])

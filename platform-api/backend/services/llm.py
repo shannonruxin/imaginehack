@@ -117,23 +117,71 @@ def generate_batch_angle(clients_and_signals: list[dict]) -> dict:
     return json.loads(raw)
 
 
-def suggest_approach_angle(client: dict, messages: list[dict], social_intelligence: list[dict]) -> dict:
+PERSONA_TAGS = [
+    "family-oriented",
+    "frequent-traveler",
+    "luxury-lifestyle",
+    "health-fitness",
+    "career-driven",
+    "entrepreneur",
+    "religious-conservative",
+    "young-professional",
+    "outdoor-adventure",
+    "foodie-lifestyle",
+]
+
+
+def classify_persona(client: dict, recent_signals: list[dict]) -> dict:
+    """Cheap persona classification — runs after each scan, overwrites the stored persona."""
+    system = (
+        "You are a life insurance sales intelligence assistant. "
+        "Based on the client's social media content, classify their lifestyle persona. "
+        f"Choose 1–3 tags from: {', '.join(PERSONA_TAGS)}. "
+        "Also write a one-sentence lifestyle summary useful for an advisor building rapport. "
+        "Return JSON with keys: 'tags' (list of strings) and 'summary' (string)."
+    )
+    si_text = "\n\n".join(
+        f"[{e.get('platform', '').upper()}]\n{e.get('content', '')[:1500]}"
+        for e in recent_signals
+    ) or "(no social content yet)"
+    user = (
+        f"Client: {_name(client)}, age {client.get('age', '?')}, "
+        f"income range {client.get('income_range', '?')}\n\n"
+        f"Social content:\n{si_text}"
+    )
+    try:
+        raw = _chat(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            response_format="json",
+        )
+        data = json.loads(raw)
+        return {
+            "tags": [t for t in data.get("tags", []) if t in PERSONA_TAGS],
+            "summary": data.get("summary", ""),
+        }
+    except Exception:
+        return {"tags": [], "summary": ""}
+
+
+def suggest_approach_angle(client: dict, messages: list[dict], recent_signals: list[dict]) -> dict:
     system = (
         "You are a life insurance sales strategist. Given a client's recent WhatsApp "
-        "conversation and their latest social intelligence (life events), suggest the best "
-        "way for the advisor to approach them. Reference prior conversation when relevant. "
-        "Return JSON with keys: 'angle' (1-2 sentence approach) and 'reasoning' (why)."
+        "conversation, their lifestyle persona, and their latest social signals, suggest "
+        "the best way for the advisor to approach them. Reference prior conversation when "
+        "relevant. Return JSON with keys: 'angle' (1-2 sentence approach) and 'reasoning' (why)."
     )
+    persona = client.get("persona") or {}
     msg_text = "\n".join(
         f"{m.get('sender', '')}: {m.get('message', '')}" for m in messages[-20:]
     )
     si_text = "\n".join(
-        f"[{e.get('platform', '')}] {e.get('content', '')[:1000]}" for e in social_intelligence[-5:]
+        f"[{e.get('platform', '')}] {e.get('content', '')[:800]}" for e in recent_signals
     )
     user = (
-        f"Client: {_name(client)}\n\n"
+        f"Client: {_name(client)}\n"
+        f"Persona: {persona.get('summary', 'unknown')} | Tags: {', '.join(persona.get('tags', []))}\n\n"
         f"Recent conversation:\n{msg_text or '(none)'}\n\n"
-        f"Social intelligence:\n{si_text or '(none)'}"
+        f"Recent signals:\n{si_text or '(none)'}"
     )
     raw = _chat([{"role": "system", "content": system}, {"role": "user", "content": user}])
     data = json.loads(raw)

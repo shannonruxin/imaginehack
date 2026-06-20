@@ -77,8 +77,15 @@ export default defineSchema({
       description: v.string(),
     })),
 
-    // Social intelligence — append-only fetch log
-    social_intelligence: v.array(v.object({
+    // Global persona — overwritten each classification run (cheap LLM, runs after each scan)
+    persona: v.optional(v.object({
+      tags: v.array(v.string()),
+      summary: v.string(),
+      updated_at: v.number(),
+    })),
+
+    // Recent signals — latest scan per platform (max 10 posts each, replaced not appended)
+    recent_signals: v.array(v.object({
       date_fetched: v.number(),
       platform: v.union(
         v.literal("linkedin"),
@@ -89,6 +96,9 @@ export default defineSchema({
     })),
 
     created_at: v.number(),
+
+    // Dev only — set to true in seed.ts so clearSeed() can target these rows safely.
+    is_seed: v.optional(v.boolean()),
   })
     .index("by_number", ["number"])
     .index("by_created_at", ["created_at"]),

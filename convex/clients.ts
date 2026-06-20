@@ -95,7 +95,7 @@ export const create = mutation({
       existing_policies: args.existing_policies ?? [],
       socials: args.socials ?? [],
       sales_opportunities: args.sales_opportunities ?? [],
-      social_intelligence: [],
+      recent_signals: [],
       created_at: Date.now(),
     });
   },
@@ -172,7 +172,8 @@ export const addSalesOpportunity = mutation({
   },
 });
 
-export const appendSocialIntelligence = mutation({
+// Replaces the latest scan entry for one platform (keeps other platforms untouched).
+export const setRecentSignals = mutation({
   args: {
     id: v.id("clients"),
     platform: v.union(v.literal("linkedin"), v.literal("instagram"), v.literal("legacy")),
@@ -181,11 +182,26 @@ export const appendSocialIntelligence = mutation({
   handler: async (ctx, args) => {
     const client = await ctx.db.get(args.id);
     if (!client) throw new Error("Client not found");
+    const others = client.recent_signals.filter(s => s.platform !== args.platform);
     await ctx.db.patch(args.id, {
-      social_intelligence: [
-        ...client.social_intelligence,
+      recent_signals: [
+        ...others,
         { date_fetched: Date.now(), platform: args.platform, content: args.content },
       ],
+    });
+  },
+});
+
+// Overwrites the global persona classification.
+export const updatePersona = mutation({
+  args: {
+    id: v.id("clients"),
+    tags: v.array(v.string()),
+    summary: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.id, {
+      persona: { tags: args.tags, summary: args.summary, updated_at: Date.now() },
     });
   },
 });
