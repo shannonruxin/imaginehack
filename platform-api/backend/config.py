@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     OPENCLAW_WEBHOOK_URL: str = ""
 
     class Config:
-        env_file = ".env"
+        env_file = "../../.env"
 
 
 settings = Settings()
