@@ -111,9 +111,9 @@ export default defineSchema({
       notes: v.optional(v.string()),
       status: v.union(
         v.literal("to_follow_up"),
-        v.literal("meeting_rescheduled"),
+        v.literal("meeting_scheduled"),
         v.literal("stale"),
-        v.literal("help_me_out"),
+        v.literal("followup_after_success"),
       ),
       next_follow_up_scheduled: v.optional(v.string()),
       next_meeting_scheduled: v.optional(v.string()),

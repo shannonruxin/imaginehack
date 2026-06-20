@@ -1,12 +1,29 @@
 from fastapi import APIRouter, BackgroundTasks
+from pydantic import BaseModel
 from services import convex
 from services.linkedin_scanner import scan_linkedin
 from services.instagram_scanner import scan_instagram
 from services.legacy_scanner import scan_legacy
 from services.handle_resolution import resolve_handles
-from services.batch_generator import generate_weekly_project
+from services.batch_generator import (
+    generate_weekly_project,
+    generate_baby_maternity_project,
+    generate_high_urgency_project,
+    generate_custom_project,
+)
 
 router = APIRouter(prefix="/workers", tags=["workers"])
+
+
+class CustomBatch(BaseModel):
+    label: str = "Custom Batch"
+    signals: list[str] = []
+    persona_tags: list[str] = []
+    platforms: list[str] = []
+    marital_status: list[str] = []
+    no_policies: bool = False
+    missing_policy_types: list[str] = []
+    only_recent: bool = False
 
 
 def _get_all_clients() -> list[dict]:
@@ -73,3 +90,22 @@ def worker_scan_client(client_id: str, bg: BackgroundTasks):
 def worker_generate_batch(bg: BackgroundTasks):
     bg.add_task(generate_weekly_project)
     return {"status": "queued"}
+
+
+@router.post("/generate-baby-maternity")
+def worker_generate_baby_maternity(bg: BackgroundTasks):
+    bg.add_task(generate_baby_maternity_project)
+    return {"status": "queued"}
+
+
+@router.post("/generate-high-urgency")
+def worker_generate_high_urgency(bg: BackgroundTasks):
+    bg.add_task(generate_high_urgency_project)
+    return {"status": "queued"}
+
+
+@router.post("/generate-custom")
+def worker_generate_custom(body: CustomBatch, bg: BackgroundTasks):
+    filters = body.model_dump(exclude={"label"})
+    bg.add_task(generate_custom_project, filters, body.label)
+    return {"status": "queued", "label": body.label}

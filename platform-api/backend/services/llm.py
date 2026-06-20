@@ -9,10 +9,7 @@ _model = settings.LLM_MODEL
 def _get_client() -> OpenAI:
     global _client
     if _client is None:
-        _client = OpenAI(
-            api_key=settings.GEMINI_API_KEY,
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-        )
+        _client = OpenAI(api_key=settings.OPENAI_API_KEY)
     return _client
 
 
@@ -184,12 +181,21 @@ def _parse_signal_text(signal: dict) -> str:
         return signal.get("content", "")[:600]
 
     if platform == "linkedin":
-        return parsed.get("text", "")[:1500]
+        if isinstance(parsed, dict):
+            return parsed.get("text", "")[:1500]
+        return str(parsed)[:1500]
 
     if platform == "instagram":
-        posts = parsed.get("posts", [])
+        if isinstance(parsed, list):
+            posts = parsed
+        elif isinstance(parsed, dict):
+            posts = parsed.get("posts", [])
+        else:
+            posts = []
         lines = []
         for p in posts[:5]:
+            if not isinstance(p, dict):
+                continue
             caption = (p.get("caption") or "").strip()
             ts = p.get("timestamp", "")
             if caption:
@@ -197,9 +203,17 @@ def _parse_signal_text(signal: dict) -> str:
         return "\n".join(lines) if lines else "(no captions)"
 
     # fallback
-    results = parsed.get("results", [])
+    if isinstance(parsed, dict):
+        results = parsed.get("results", [])
+    elif isinstance(parsed, list):
+        results = parsed
+    else:
+        results = []
     if results:
-        return "\n".join(f"  {r.get('title','')}: {r.get('text','')[:200]}" for r in results[:3])
+        return "\n".join(
+            f"  {r.get('title','')}: {r.get('text','')[:200]}"
+            for r in results[:3] if isinstance(r, dict)
+        )
     return str(parsed)[:600]
 
 
@@ -249,15 +263,19 @@ def suggest_approach_angle(client: dict, messages: list[dict], recent_signals: l
         "STRAIGHTFORWARD: The advisor directly references something they saw or heard about the client online. "
         "Natural but transparent — like a friend who saw your post. E.g. 'Eh I saw you went Bali last month! How was it? Did you get travel insurance?' "
         "This works when the relationship is close enough that referencing their posts won't feel creepy.\n\n"
-        "SUBTLE: This is just a warm, genuine catch-up message. No agenda, no hooks, no planted seeds. "
-        "The goal is simply to re-open the relationship naturally — pick up from wherever the last WhatsApp conversation left off, "
-        "be human, check in on something they mentioned before. The insurance topic will emerge on its own over the next few exchanges. "
-        "Use the chat history to make it feel continuous and personal. If the conversation went cold, just say hey warmly. "
-        "Do NOT try to steer towards any topic in this message — that comes later.\n\n"
+        "SUBTLE: A warm, genuine catch-up message whose VISIBLE content references ONLY things the client has personally told the advisor in the WhatsApp history — "
+        "never anything seen on their socials. The advisor must NEVER reveal or hint that they've been looking at the client's social media. "
+        "But this message is NOT agenda-free: the advisor has a hidden objective — a specific opportunity spotted on the client's socials "
+        "(a life event, trip, milestone) that maps to an insurance need. Using ONLY chat-history footing, gently steer the conversation in that direction "
+        "so the CLIENT brings the topic up themselves. "
+        "E.g. if socials show they're expecting a baby but in chat they only ever discussed work, open by catching up on work, then naturally ask how life's been "
+        "outside the office / any exciting news lately — an opening that lets them volunteer the baby without you ever mentioning it. "
+        "The social insight sets the DIRECTION of the steer; the chat history supplies the visible CONTENT. "
+        "Plant the seed through a chat-grounded question — never state the social fact yourself.\n\n"
         "Return JSON with keys:\n"
         "  'angle_direct': exact message for the straightforward approach — casual tone, feels like a friend\n"
-        "  'angle_subtle': the warm catch-up opener — picks up from chat history, zero agenda visible\n"
-        "  'reasoning': what signal you spotted, what insurance need it maps to, and how the subtle opener sets it up naturally over time"
+        "  'angle_subtle': the warm catch-up opener — visible content drawn ONLY from chat history, secretly steering toward the socials opportunity, never exposing it\n"
+        "  'reasoning': the social signal you spotted (the hidden target), the insurance need it maps to, and how the chat-grounded subtle opener nudges the client toward volunteering it without revealing you saw their socials"
     )
 
     user = (
@@ -328,15 +346,20 @@ def suggest_approach_angle_enriched(client: dict, messages: list[dict], recent_s
     compose_system = (
         "You are a life insurance sales coach. Using the base angles and extra web context, produce enriched versions of both openers. "
         "Return JSON with keys: 'angle_direct', 'angle_subtle', 'reasoning', 'web_enriched' (true). "
-        "angle_direct: directly references something from their life (post, trip, event) — like a friend who saw it. "
-        "angle_subtle: warm genuine catch-up that picks up from prior conversation — zero agenda, no planted seeds, just re-opening the relationship."
+        "angle_direct: directly references something concrete from their life (post, trip, event), weaving in 1-2 specific web facts — like a friend who saw it. "
+        "angle_subtle: a warm catch-up whose VISIBLE content draws ONLY from prior WhatsApp conversation. "
+        "It must NEVER mention the social/web facts or hint that you saw their socials. "
+        "Use the web insight only to decide which DIRECTION to gently steer the conversation, so the client brings the topic up themselves — "
+        "the seed is planted via a chat-grounded question, never by stating the fact."
     )
     compose_user = (
         f"Client: {name}\n"
         f"Base direct angle: {base['angle_direct']}\n"
         f"Base subtle angle: {base['angle_subtle']}\n\n"
-        f"Extra web context (weave in 1-2 specific facts to make it more concrete):\n{web_context}\n\n"
-        "Enrich both openers with the web context. Keep the tone casual and personal."
+        f"Extra web context:\n{web_context}\n\n"
+        "Enrich angle_direct by weaving in 1-2 specific facts from the web context. "
+        "For angle_subtle, use the web context ONLY to choose the steer direction — do NOT put any of these facts (or the fact that you saw their socials) into the visible message. "
+        "Keep the tone casual and personal."
     )
     raw = _chat([{"role": "system", "content": compose_system}, {"role": "user", "content": compose_user}])
     data = json.loads(raw)

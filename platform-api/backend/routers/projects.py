@@ -5,7 +5,7 @@ from services import convex, enrich as enrich_service
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
-ClientStatus = Literal["to_follow_up", "meeting_rescheduled", "stale", "help_me_out"]
+ClientStatus = Literal["to_follow_up", "meeting_scheduled", "stale", "followup_after_success"]
 
 
 class ProjectCreate(BaseModel):

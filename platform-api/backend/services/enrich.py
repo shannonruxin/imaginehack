@@ -16,9 +16,10 @@ def enrich_project(project_id: str) -> list[dict]:
         result = llm.suggest_approach_angle(
             client, history.get("messages", []), client.get("recent_signals", [])
         )
+        angle = result.get("angle_direct") or result.get("angle_subtle") or ""
         convex.update_project_client_status(
-            project_id, client_id, entry.get("status", "to_follow_up"), notes=result["angle"]
+            project_id, client_id, entry.get("status", "to_follow_up"), notes=angle
         )
-        enriched.append({"client_id": client_id, "angle": result["angle"]})
+        enriched.append({"client_id": client_id, "angle": angle})
 
     return enriched

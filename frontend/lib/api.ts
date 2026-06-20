@@ -50,12 +50,40 @@ export const suggestAngle = (clientId: string) =>
     body: JSON.stringify({ client_id: clientId }),
   });
 
+export const handoffToWhatsApp = (
+  clientId: string,
+  angleType: "direct" | "subtle",
+  message?: string,
+) =>
+  req<{ sent: boolean; client_id: string; message: string }>("/advisor/handoff", {
+    method: "POST",
+    body: JSON.stringify({ client_id: clientId, angle_type: angleType, message }),
+  });
+
 // Workers
 export const scanLinkedIn = () => req("/workers/scan-linkedin", { method: "POST" });
 export const scanInstagram = () => req("/workers/scan-instagram", { method: "POST" });
 export const scanLegacy = () => req("/workers/scan-legacy", { method: "POST" });
 export const scanClient = (id: string) => req(`/workers/scan-client/${id}`, { method: "POST" });
 export const generateBatch = () => req("/workers/generate-batch", { method: "POST" });
+export const generateBabyMaternity = () => req("/workers/generate-baby-maternity", { method: "POST" });
+export const generateHighUrgency = () => req("/workers/generate-high-urgency", { method: "POST" });
+
+export type BatchFilters = {
+  label?: string;
+  signals?: string[];
+  persona_tags?: string[];
+  platforms?: string[];
+  marital_status?: string[];
+  no_policies?: boolean;
+  missing_policy_types?: string[];
+  only_recent?: boolean;
+};
+export const generateCustomBatch = (filters: BatchFilters) =>
+  req<{ status: string; label: string }>("/workers/generate-custom", {
+    method: "POST",
+    body: JSON.stringify(filters),
+  });
 
 // Types
 export type Client = {
@@ -117,7 +145,7 @@ export type Project = {
 export type ProjectClient = {
   client_id: string;
   notes?: string;
-  status: "to_follow_up" | "meeting_rescheduled" | "stale" | "help_me_out";
+  status: "to_follow_up" | "meeting_scheduled" | "stale" | "followup_after_success";
   next_follow_up_scheduled?: string;
   next_meeting_scheduled?: string;
 };

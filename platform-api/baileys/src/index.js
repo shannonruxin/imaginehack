@@ -33,14 +33,18 @@ async function seedLidCache() {
       try {
         const results = await sock.onWhatsApp(`${number}@s.whatsapp.net`);
         for (const r of results || []) {
-          if (r.jid?.endsWith("@lid") || r.lid) {
-            const lid = r.lid || r.jid;
-            lidCache.set(lid, `${number}@s.whatsapp.net`);
-            console.log(`Cached: ${lid} -> ${number}`);
+          if (r.lid) {
+            lidCache.set(r.lid, `${number}@s.whatsapp.net`);
+            console.log(`Cached: ${r.lid} -> ${number}`);
+          } else {
+            console.log(`No LID for ${number}:`, JSON.stringify(r));
           }
         }
-      } catch {
-        // individual lookup failures are non-fatal
+        if (!results || results.length === 0) {
+          console.log(`No WA result for ${number}`);
+        }
+      } catch (err) {
+        console.log(`onWhatsApp error for ${number}:`, err.message);
       }
     }
     console.log("LID cache seeded.");
@@ -131,6 +135,25 @@ async function connectToWA() {
 connectToWA();
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
+
+app.post("/send", async (req, res) => {
+  const { number, message } = req.body || {};
+  if (!number || !message) {
+    return res.status(400).json({ error: "number and message are required" });
+  }
+  if (!sock) {
+    return res.status(503).json({ error: "WhatsApp not connected" });
+  }
+  try {
+    const jid = `${String(number).replace(/^\+/, "")}@s.whatsapp.net`;
+    await sock.sendMessage(jid, { text: message });
+    console.log("Sent message to", jid);
+    res.json({ sent: true, jid });
+  } catch (err) {
+    console.error("Send failed:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Baileys service listening on :${PORT}`));

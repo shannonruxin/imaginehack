@@ -3,9 +3,9 @@ import { v } from "convex/values";
 
 const clientStatus = v.union(
   v.literal("to_follow_up"),
-  v.literal("meeting_rescheduled"),
+  v.literal("meeting_scheduled"),
   v.literal("stale"),
-  v.literal("help_me_out"),
+  v.literal("followup_after_success"),
 );
 
 export const getAll = query({

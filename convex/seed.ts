@@ -608,7 +608,7 @@ export const run = internalMutation({
         {
           client_id: c4,
           notes: "Second baby born May 11, hit with layoff June 7 while on leave. Two kids, no income protection. Urgent compassionate outreach.",
-          status: "help_me_out",
+          status: "followup_after_success",
           next_follow_up_scheduled: "2026-06-15",
         },
         {
@@ -626,8 +626,8 @@ export const run = internalMutation({
         {
           client_id: c1,
           notes: "Baby Adam Hakimi born May 30. No existing policy. Proposal sent June 1 — no reply yet. Follow up now.",
-          status: "meeting_rescheduled",
-          next_follow_up_scheduled: "2026-06-16",
+          status: "meeting_scheduled",
+          next_meeting_scheduled: "2026-06-16",
         },
         {
           client_id: c3,

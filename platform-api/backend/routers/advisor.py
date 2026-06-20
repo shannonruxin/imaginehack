@@ -1,8 +1,11 @@
+import time
+from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from services import llm
 from services import advisor_llm
 from services import convex
+from services import whatsapp
 
 router = APIRouter(prefix="/advisor", tags=["advisor"])
 
@@ -18,6 +21,12 @@ class SuggestAngle(BaseModel):
 
 class ClientQuery(BaseModel):
     query: str
+
+
+class Handoff(BaseModel):
+    client_id: str
+    angle_type: Literal["direct", "subtle"] = "subtle"
+    message: str | None = None
 
 
 @router.post("/message")
@@ -60,3 +69,36 @@ def suggest_angle_enriched(body: SuggestAngle):
     history = convex.get_chat_history(body.client_id) or {}
     messages = history.get("messages", [])
     return llm.suggest_approach_angle_enriched(client, messages, client.get("recent_signals", []))
+
+
+@router.post("/handoff")
+def handoff(body: Handoff):
+    """Send the chosen approach angle to the client over WhatsApp."""
+    client = convex.get_client_by_id(body.client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+
+    number = client.get("number")
+    if not number:
+        raise HTTPException(400, "Client has no phone number on file")
+
+    text = body.message
+    if not text:
+        history = convex.get_chat_history(body.client_id) or {}
+        messages = history.get("messages", [])
+        angle = llm.suggest_approach_angle_enriched(
+            client, messages, client.get("recent_signals", [])
+        )
+        key = "angle_direct" if body.angle_type == "direct" else "angle_subtle"
+        text = angle.get(key, "")
+
+    if not text.strip():
+        raise HTTPException(422, "No angle text to send")
+
+    try:
+        whatsapp.send_message(number, text)
+    except Exception as e:
+        raise HTTPException(502, f"WhatsApp send failed: {e}")
+
+    convex.append_message(body.client_id, "advisor", text, int(time.time() * 1000))
+    return {"sent": True, "client_id": body.client_id, "message": text}
