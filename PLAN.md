@@ -1,6 +1,6 @@
 # ImagineHack — Implementation Plan
 
-_Last updated: 2026-06-20. Reflects revamped 3-table schema (clients · projects · chat_history). `signals` and `outreach_batches` tables removed — signals now live in `clients.social_intelligence[]`, batches now live in `projects`._
+_Last updated: 2026-06-21. Schema further revamped: `social_intelligence[]` replaced by `recent_signals[]` (one entry per platform, replaced not appended) + `persona{}` (global lifestyle classification, overwritten each scan). See `docs/social-listening.md`._
 
 ---
 
@@ -340,11 +340,96 @@ _Last updated: 2026-06-20. Reflects revamped 3-table schema (clients · projects
 4.  Backend routers (clients/projects) ✅
 5.  Baileys service                    ✅ (docker + dedupe pending)
 6.  Handle resolution → socials[]      ✅ (HIGH auto; MED/LOW deferred)
-7.  Scanners → social_intelligence[]   ✅
+7.  Scanners → recent_signals[]        ✅ (schema upgraded from social_intelligence[])
 8.  Batch generator → projects         ✅
 9.  Advisor intent handler             ✅
-10. OpenClaw connection (chat+angle)   ✅ (endpoints + SKILL.md; live E2E pending Component 13)
+10. OpenClaw connection (chat+angle)   ✅ (endpoints + SKILL.md; live E2E pending keys)
 11. Exa/Apify fetch strategy           ✅ (verify live)
 12. Projects enrichment                🔶 (endpoint ✅, auto-wire ⬜)
-13. Docker compose complete            ⬜
+13. Docker compose complete            🔶 (backend ✅, baileys ⬜)
+14. OpenClaw angle enrichment          ✅ (SKILL.md updated; E2E pending)
+15. Persona classifier                 ✅ (gpt-4o-mini, runs after each scan)
+16. Live E2E                           ⬜ (blocked on keys + baileys)
 ```
+
+---
+
+## Next Todo List
+_Derived from `docs/openclaw.md`, `docs/platform-api.md`, `docs/social-listening.md`. In rough priority order._
+
+---
+
+### A — Unblock the Runtime (nothing works without these)
+
+- [ ] **A1** Add `CONVEX_DEPLOY_KEY` to root `.env` — get from Convex dashboard → Settings → Deploy keys. Without this, backend cannot read or write Convex.
+- [ ] **A2** Add `OPENAI_API_KEY` to root `.env`. Without this, all LLM calls (advisor chat, persona classification, batch generation, angle suggestion) will fail at call time.
+- [ ] **A3** Restart backend after setting keys: `docker compose restart backend`. Smoke-test: `curl -s http://localhost:8001/advisor/message -H 'Content-Type: application/json' -d '{"message":"hello","advisor_id":"default"}'`
+
+---
+
+### B — Convex Schema / Functions (reflect actual schema in plan)
+
+The plan still documents `social_intelligence[]` and `appendSocialIntelligence`. These have been replaced. Update tracking:
+
+- [x] **B1** `convex/schema.ts` — `recent_signals[]` (one per platform, replaced not appended) + `persona{}` (overwritten each scan) + `is_seed: v.optional(v.boolean())`
+- [x] **B2** `convex/clients.ts` — `setRecentSignals(id, platform, content)` replaces `appendSocialIntelligence`; `updatePersona(id, tags, summary)` added
+- [x] **B3** `convex/dev.ts` — `clearSeed` internalMutation (targets `is_seed === true` rows only)
+- [ ] **B4** Seed (`convex/seed.ts`) — teammate to rewrite for new schema: use `is_seed: true` on all inserts, `recent_signals: []`, `persona: undefined`, no `social_intelligence` field — **👤 teammate**
+
+---
+
+### C — Social Listening Pipeline (docs/social-listening.md)
+
+- [x] **C1** LinkedIn scanner uses `setRecentSignals(id, "linkedin", json)` — replaces per scan, no append
+- [x] **C2** Instagram scanner uses `setRecentSignals(id, "instagram", json)`, `results_limit=3`
+- [x] **C3** Legacy scanner uses `setRecentSignals(id, "legacy", json)`
+- [x] **C4** All three scanners call `_refresh_persona()` after each write
+- [x] **C5** `classify_persona` in `llm.py` uses `CLASSIFIER_MODEL` (`gpt-4o-mini`) — separate from main `LLM_MODEL`
+- [x] **C6** `CLASSIFIER_MODEL=gpt-4o-mini` added to `config.py`
+- [ ] **C7** Verify live scan end-to-end: run `POST /workers/scan-linkedin` on a client with a known LinkedIn URL, confirm `recent_signals[linkedin]` is written and `persona` is updated in Convex. Requires A1 + A2.
+- [ ] **C8** Verify `classify_persona` tags are from the valid set (`family-oriented`, `frequent-traveler`, etc.) — add validation/filtering if LLM returns out-of-set tags (currently filtered in `llm.py` but worth confirming with a live run)
+- [ ] **C9** Handle case where `recent_signals` content is too large for LLM context — truncate `content` string before passing to `classify_persona` (LinkedIn profile text can be very long)
+
+---
+
+### D — Platform API (docs/platform-api.md)
+
+- [x] **D1** Backend Dockerfile created (`platform-api/backend/Dockerfile`)
+- [x] **D2** Backend added to `docker-compose.yml` as `backend` service, port 8001 on host
+- [x] **D3** `config.py` — `CONVEX_DEPLOY_KEY` optional default `""`, `OPENAI_API_KEY` lazy (fails at call time not import)
+- [x] **D4** `llm.py` — OpenAI client is lazy (initialised on first call)
+- [ ] **D5** Fix `/internal/messages` docstring — currently says "called by OpenClaw's messageReceived hook" but per spec it's called by **Baileys**. Update `platform-api.md` and the router comment.
+- [ ] **D6** `POST /projects/{id}/enrich` — auto-wire into `batch_generator.py` so it runs immediately after `projects:create`. Currently only callable manually. See Component 12.
+- [ ] **D7** Handle resolution: MEDIUM confidence (score 3–5) candidates — currently silently dropped. Store as a pending candidate and expose via `GET /clients/{id}/resolution` so advisor can confirm. Low priority for demo.
+- [ ] **D8** Add `baileys` service to `docker-compose.yml` (Component 13). Include `auth/` volume for session persistence. Health check on `/health`.
+- [ ] **D9** Baileys `filter.js` — reconcile `checkIsClient` vs `isTrackedClient` duplicate.
+- [ ] **D10** Verify Baileys phone-number normalisation matches Convex `number` format (E.164, no `+`? confirm).
+
+---
+
+### E — OpenClaw (docs/openclaw.md)
+
+- [x] **E1** Skill deployed to container — `SKILL.md` synced via Dockerfile + entrypoint.sh
+- [x] **E2** Backend reachable from openclaw: `docker exec imaginehack-openclaw curl -s http://backend:8000/health` → `{"ok":true}`
+- [x] **E3** Pre-classification gate documented and in SKILL.md — strict: only named destinations, concrete hobbies, recent milestones pass
+- [x] **E4** Web search enrichment documented in SKILL.md — good/bad search examples, output format
+- [ ] **E5** **Live E2E relay test** — text advisor WhatsApp number: "What's up with [client name]?" → OpenClaw → `/advisor/message` → reply arrives on WhatsApp. Requires A1 + A2 + seed data.
+- [ ] **E6** **Live angle enrichment test** — text "how should I approach [client with travel signal]?" → OpenClaw runs gate, searches Brave/Exa, returns conversation starter. Confirm gate correctly blocks generic persona-only clients.
+- [ ] **E7** **Feature 3 (send messages to clients)** — wire up outbound WhatsApp sending. When advisor says "send Ahmad: [text]", OpenClaw composes a WhatsApp message to Ahmad's number. Needs: resolve client name → number via `GET /clients`, then send via WhatsApp. Currently undocumented in SKILL.md — add workflow.
+- [ ] **E8** **Weekly batch notification E2E** — set `OPENCLAW_WEBHOOK_URL` in `.env` to the OpenClaw gateway webhook for the advisor's account. Trigger `POST /workers/generate-batch` manually, confirm advisor receives WhatsApp notification.
+- [ ] **E9** Add advisor's number to WhatsApp allowlist if not already there. Current allowlist: `60122468905`, `60173024851`.
+
+---
+
+### F — Integration / E2E
+
+- [ ] **F1** Full pipeline smoke test (requires A1 + A2 + seed + Baileys):
+  1. Seed clients with `is_seed: true`
+  2. Run `POST /workers/scan-instagram` on a client with IG handle
+  3. Confirm `recent_signals[instagram]` written, `persona` updated
+  4. Run `POST /workers/generate-batch`
+  5. Confirm `projects` record created with correct clients + notes
+  6. Text OpenClaw: "Who should I reach out to this week?" → reply names the batch clients
+  7. Text OpenClaw: "How should I approach [client]?" → enriched conversation starter returned
+- [ ] **F2** Verify `cron.py` jobs fire correctly in Docker (APScheduler timezone — confirm server timezone is UTC or MYT as expected for 3am/6am schedule)
+- [ ] **F3** Run `npx convex run dev:clearSeed` after each demo to clean seed data without touching real clients

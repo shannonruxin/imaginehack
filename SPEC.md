@@ -506,7 +506,66 @@ OPENCLAW_WEBHOOK_URL=
 
 ---
 
-## 13. Constraints & Notes
+## 13. Frontend
+
+**Stack**: React + Vite (or Next.js). Talks to platform API at `http://localhost:8001`.
+
+### Routes
+
+#### `/` — Dashboard
+Current week's outreach batch.
+- `batch_sales_angle` as the page headline
+- Client list from `GET /projects/current` — name, status chip, approach notes
+- Update status inline → `PATCH /projects/current/clients/:id`
+- Click client name → `/clients/:id`
+
+#### `/clients` — Client List
+- Table: name, persona tags, last signal date, status in current project
+- Search by name
+- "Add client" button → `/clients/new`
+- Data: `GET /clients`
+
+#### `/clients/new` — Add Client
+Form fields: first name, last name, age, nationality, income range, phone, email, marital status.
+- Optional inline rows: dependents (relationship, name, age), existing policies (type, name, dates, beneficiaries), socials (instagram/linkedin/website).
+- Submit → `POST /clients`
+- On success: handle resolution runs in background, redirect to `/clients/:id`
+
+#### `/clients/:id` — Client Detail
+Four tabs:
+
+**Overview**
+- Demographics, contact info, marital status, dependents, existing policies
+- Edit inline → `PATCH /clients/:id`
+- Sales opportunities list + "Add note" → `POST /clients/:id/opportunities`
+
+**Signals**
+- Persona tags + summary (read-only — backend-generated via `gpt-4o-mini`)
+- Recent signals per platform: LinkedIn snippet, last 3 IG posts (caption + timestamp), Legacy results
+- "Refresh" per platform → `POST /workers/scan-linkedin` / `scan-instagram` / `scan-legacy` (fires for all clients; acceptable for demo)
+
+**Chat History**
+- Read-only WhatsApp log from `GET /clients/:id/chat-history`
+- Chronological thread, client vs advisor messages visually distinct
+
+**Approach Angle**
+- "Suggest angle" button → `POST /advisor/suggest-angle { client_id }`
+- Shows `angle` prominently, collapsible `reasoning`
+
+#### `/projects` — Project History
+- List all projects newest first → `GET /projects`
+- Each row: date, `batch_sales_angle` excerpt, client count
+- Click → `/projects/:id`
+
+#### `/projects/:id` — Project Detail
+- `batch_sales_angle` at top
+- Client table: name, status, notes, follow-up date, meeting date
+- Edit status/notes/dates inline → `PATCH /projects/:id/clients/:client_id`
+- "Enrich all" button → `POST /projects/:id/enrich`
+
+---
+
+## 14. Constraints & Notes
 
 - **ToS**: Apify/Exa scraping of LinkedIn/Instagram violates their ToS. Fine for hackathon, needs legal review for production.
 - **Baileys filters at source** — only tracked client numbers are stored. Non-client messages never touch the DB.
@@ -517,3 +576,48 @@ OPENCLAW_WEBHOOK_URL=
 - **`persona` vs `recent_signals` split** — `persona` is the stable, advisor-facing lifestyle summary (overwritten each scan via a cheap LLM). `recent_signals` is the timely raw content (one entry per platform, replaced each scan, max 10 posts). The two layers serve different jobs: persona shapes *how* the advisor talks; recent signals determine *when* to act.
 - **Message backfill** — for clients added after Baileys was running, only future messages are captured.
 
+---
+
+## 15. Nice to Have — Future Scope
+
+> **These features are NOT being built in this project.** This section documents ideas worth revisiting in a future iteration. Nothing here should be treated as a current requirement or backlog item.
+
+---
+
+### Automated Client Creation
+
+The biggest gap in the current system is that creating a new client is entirely manual — the advisor fills in a form. All the intelligence pipelines (scanning, persona, signals, batch) only work on clients already in the database. These ideas would close that gap.
+
+#### WhatsApp First Contact Detection
+When an unknown number texts the advisor, Baileys currently ignores it (filtered out since it's not a tracked client). Instead, the system could:
+- Flag the unknown number to the advisor via OpenClaw: "New message from +60123456789 — add them as a client?"
+- Advisor replies "yes" → OpenClaw prompts for a name → backend creates a stub client with just `number` + `first_name`
+- Handle resolution then runs automatically to find their LinkedIn/Instagram
+
+This would make onboarding as frictionless as a WhatsApp reply.
+
+#### Business Card / Photo Scan
+Advisor photographs a business card or a printed client form and sends it to OpenClaw. Vision LLM (GPT-4o vision or Gemini) extracts name, number, email, company, and pre-fills a client draft. Advisor confirms or edits, then backend creates the record.
+
+#### Voice Note Intake
+Advisor sends a WhatsApp voice note: "New client, Ahmad Farhan, 38, married, works at Maybank, number 0123456789." OpenClaw transcribes via Whisper and parses the fields. Draft is presented back for confirmation before `POST /clients`.
+
+#### Referral Link / Client Self-Intake Form
+A short web form the advisor shares with a prospect (WhatsApp link or QR code). Client fills in their own name, contact, and marital status. On submit, `POST /clients` is called automatically and handle resolution runs. No data entry on the advisor's side.
+
+#### CSV / Excel Import
+Bulk import from an existing spreadsheet — common when an advisor is migrating from a CRM or Excel tracker. Backend parses the file, validates fields, and creates client records in batch. Handle resolution runs for each.
+
+#### CRM / Policy System Sync
+Pull existing client records from a life insurance company's policy system or CRM (e.g. Sun Life, Prudential agent portals) via API or scrape. Auto-populates `existing_policies[]` and demographic fields without any manual entry.
+
+---
+
+### Other Future Ideas
+
+- **Reminder scheduling via OpenClaw** — advisor says "remind me to call Ahmad on Friday" → OpenClaw sets a native cron, fires a WhatsApp reminder at the right time.
+- **Multi-advisor support** — currently assumes one advisor. Future: `advisor_id` as a real entity, each advisor sees only their own clients and projects.
+- **Client-facing chatbot** — OpenClaw handles inbound questions from clients directly (policy queries, renewal reminders), not just advisor-facing chat.
+- **Signal confidence scoring** — currently any detected life event qualifies for the weekly batch. Future: HIGH/MEDIUM tiers with different follow-up urgency.
+- **Dashboard analytics** — conversion rate by signal type, average time from signal detection to meeting booked, top-performing angles.
+- **WhatsApp message drafting** — advisor asks OpenClaw to draft a message to a client based on their persona + the conversation angle. OpenClaw composes, advisor approves, then sends.
