@@ -1,35 +1,23 @@
 # Convex Setup Plan
 
 ## Goal
-Initialize Convex as the shared database. The Python backend and OpenClaw both read/write here — clean table ownership means each piece of state has exactly one place to update.
+Initialize Convex as the shared database for the ImagineHack project. The Python backend and OpenClaw both read/write to Convex — getting the schema right is the foundation everything else builds on.
 
 ---
 
-## Schema Design — Ownership Boundaries
-
-Each table owns one concern. No field is duplicated across tables.
-
-| Table | Owns |
-|---|---|
-| `clients` | Identity, profile, insurance, social handles + scan schedule |
-| `signals` | Every detected life event (source of truth) |
-| `outreach_batches` | Weekly auto-generated advisor recommendations |
-| `projects` | Advisor-created campaigns and outreach workflow |
-
-**Why this split eliminates overlap:**
-- Signals were previously embedded in `clients.social_intelligence.data_found` AND expected to be queryable/actionable via `/signals` API — impossible to do cleanly when embedded
-- `pending_batch` on clients is gone — replaced by querying `signals WHERE batched = false AND client_id = X`
-- `projects` tracks the advisor's campaign workflow; `outreach_batches` tracks the auto-generated weekly recommendations — these are separate concerns and no longer share state
-
----
-
-## Step 1 — Initialize Convex
+## Step 1 — Initialize Convex in the project
 
 ```bash
 npm create convex@latest
+# or if adding to existing project:
+npx convex dev --once
 ```
 
-Creates: `convex/`, `convex/schema.ts`, `.env.local` with `CONVEX_URL`.
+This creates:
+- `convex/` directory
+- `convex/_generated/` (auto-generated, do not edit)
+- `convex/schema.ts`
+- `.env.local` with `CONVEX_URL`
 
 ---
 
@@ -37,9 +25,7 @@ Creates: `convex/`, `convex/schema.ts`, `.env.local` with `CONVEX_URL`.
 
 File: `convex/schema.ts`
 
-### Table 1: `clients`
-
-Owns: who the client is, their insurance, their social handles, and when each platform was last scanned.
+### Table: `clients`
 
 ```ts
 clients: defineTable({
@@ -52,7 +38,6 @@ clients: defineTable({
   occupation: v.string(),
   income_range: v.string(),
   website: v.optional(v.string()),
-  known_family_members: v.array(v.string()),  // used by Legacy.com search
 
   // Personal profile
   marital_status: v.union(
@@ -77,9 +62,8 @@ clients: defineTable({
   financial_goals: v.array(v.string()),
   sales_opportunities: v.array(v.string()),
 
-  // Social handles + scan schedule (one entry per platform)
-  // Signals detected during scans go to the `signals` table, not here
-  platforms: v.array(v.object({
+  // Social intelligence (one entry per platform)
+  social_intelligence: v.array(v.object({
     platform: v.union(
       v.literal("linkedin"),
       v.literal("instagram"),
@@ -93,71 +77,23 @@ clients: defineTable({
     )),
     last_checked: v.optional(v.number()),
     next_check: v.optional(v.number()),
+    data_found: v.array(v.object({
+      signal_type: v.string(),
+      summary: v.string(),
+      detected_at: v.number(),
+    })),
+    pending_batch: v.boolean(),
   })),
 
   created_at: v.number(),
 })
-.index("by_created_at", ["created_at"])
-.index("by_name", ["name"])
 ```
 
-### Table 2: `signals`
-
-Owns: every life event ever detected. One row per signal per client. Python backend writes here after each scan; never embeds signal data in `clients`.
-
-```ts
-signals: defineTable({
-  client_id: v.id("clients"),
-  platform: v.union(
-    v.literal("linkedin"),
-    v.literal("instagram"),
-    v.literal("legacy")
-  ),
-  signal_type: v.string(),   // "new_job" | "pregnancy" | "family_death" | etc.
-  summary: v.string(),       // "Posted pregnancy announcement on 17 Jun"
-  evidence: v.optional(v.string()),
-  confidence: v.union(
-    v.literal("high"),
-    v.literal("medium"),
-    v.literal("low")
-  ),
-  detected_at: v.number(),
-  batched: v.boolean(),      // included in an outreach_batch yet?
-  actioned: v.boolean(),     // advisor has actioned this signal
-})
-.index("by_client", ["client_id"])
-.index("by_client_batched", ["client_id", "batched"])
-.index("by_batched", ["batched"])
-```
-
-> **`batched` replaces `pending_batch`** — instead of a boolean on the client, query `signals WHERE batched = false` to find unbatched signals. Single source of truth, individually updatable.
-
-### Table 3: `outreach_batches`
-
-Owns: the weekly auto-generated advisor recommendation. Written by `generate_outreach_batch()`. Separate from advisor-created projects.
-
-```ts
-outreach_batches: defineTable({
-  week_of: v.string(),           // ISO date of Monday, e.g. "2026-06-23"
-  batch_sales_angle: v.string(), // LLM-generated summary for the week
-  created_at: v.number(),
-
-  clients: v.array(v.object({
-    client_id: v.id("clients"),
-    notes: v.string(),           // "New job — review coverage limit"
-    outreached: v.boolean(),
-  })),
-})
-.index("by_week", ["week_of"])
-```
-
-### Table 4: `projects`
-
-Owns: advisor-created campaigns. Not generated by cron — created manually by the advisor to track a sales initiative across multiple clients.
+### Table: `projects`
 
 ```ts
 projects: defineTable({
-  name: v.string(),         // "June 2026 Young Families Drive"
+  name: v.string(),
   sales_angle: v.string(),
   created_at: v.number(),
 
@@ -173,29 +109,81 @@ projects: defineTable({
     ),
     outreached: v.boolean(),
   })),
-})
+}),
+
+  interactions: defineTable({
+
+    // Which client this interaction belongs to
+    client_id: v.id("clients"),
+
+    // Optional: link it to a sales project/campaign
+    project_id: v.optional(v.id("projects")),
+
+    // Communication type
+    type: v.union(
+      v.literal("call"),
+      v.literal("meeting"),
+      v.literal("email"),
+      v.literal("whatsapp")
+    ),
+
+    // Date of interaction
+    date: v.number(),
+
+    // What happened
+    notes: v.string(),
+
+    // When advisor should contact again
+    next_follow_up: v.optional(v.number())
+
+  })
+
+  .index("by_client", ["client_id"])
+
+  .index("by_follow_up", ["next_follow_up"]),
 ```
 
 ---
 
-## Step 3 — Write Convex functions
+## Step 3 — Add indexes for query performance
 
-| File | Exposes |
-|---|---|
-| `convex/clients.ts` | `getAll`, `getById`, `create`, `update`, `updatePlatformHandle`, `updateScanSchedule` |
-| `convex/signals.ts` | `create`, `listByClient`, `listUnbatched`, `markBatched`, `markActioned` |
-| `convex/outreachBatches.ts` | `create`, `getCurrent`, `getByWeek`, `markOutreached` |
-| `convex/projects.ts` | `create`, `getAll`, `getById`, `updateClientStatus` |
+Add these indexes to `clients` so the Python backend can query efficiently:
+
+```ts
+.index("by_created_at", ["created_at"])
+.index("by_name", ["name"])
+```
+
+The daily scan queries `social_intelligence` for clients whose `next_check` is due — this is a nested field, so the backend will fetch all clients and filter in Python (acceptable at hackathon scale).
 
 ---
 
-## Step 4 — Deploy
+## Step 4 — Write Convex query/mutation functions
+
+Create these files under `convex/`:
+
+| File | What it exposes |
+|---|---|
+| `convex/clients.ts` | `getAll`, `getById`, `create`, `update` |
+| `convex/projects.ts` | `getAll`, `getById`, `create`, `updateClientStatus` |
+| `convex/socialIntelligence.ts` | `updatePlatformData`, `getPendingBatch`, `clearPendingBatch` |
+
+The Python backend calls these via the [Convex HTTP client](https://docs.convex.dev/client/python).
+
+---
+
+## Step 5 — Deploy to Convex cloud
 
 ```bash
 npx convex deploy
 ```
 
-Add to `.env`:
+This gives you:
+- A live `CONVEX_URL` (e.g. `https://happy-animal-123.convex.cloud`)
+- A `CONVEX_DEPLOY_KEY` for the Python backend
+
+Add both to your `.env`:
+
 ```
 CONVEX_URL=https://your-deployment.convex.cloud
 CONVEX_DEPLOY_KEY=prod:your-deploy-key
@@ -203,9 +191,12 @@ CONVEX_DEPLOY_KEY=prod:your-deploy-key
 
 ---
 
-## Step 5 — Verify
+## Step 6 — Verify with Convex dashboard
 
-Open `https://dashboard.convex.dev` → confirm all 4 tables and their indexes exist. Insert a test client and a test signal, confirm the `by_client_batched` index returns it correctly.
+Open `https://dashboard.convex.dev` → confirm:
+- Both tables (`clients`, `projects`) appear
+- Schema matches the spec
+- Run a test mutation to insert a dummy client
 
 ---
 
@@ -216,24 +207,27 @@ imaginehack/
 ├── convex/
 │   ├── schema.ts
 │   ├── clients.ts
-│   ├── signals.ts
-│   ├── outreachBatches.ts
 │   ├── projects.ts
-│   └── _generated/
-├── .env.local
+│   ├── socialIntelligence.ts
+│   └── _generated/       ← auto-generated, do not edit
+├── .env.local            ← CONVEX_URL (local dev)
 └── package.json
 ```
 
 ---
 
-## What each update touches (no overlap)
+## Environment variables needed
 
-| Operation | Tables written |
-|---|---|
-| Add new client | `clients` only |
-| Resolve Instagram handle | `clients.platforms` only |
-| Scan detects a signal | `signals` only (insert new row) |
-| Generate weekly batch | `signals.batched = true`, insert `outreach_batches` |
-| Advisor marks signal actioned | `signals.actioned = true` only |
-| Advisor marks outreached in batch | `outreach_batches.clients[].outreached` only |
-| Advisor updates project status | `projects.clients[].status` only |
+```
+CONVEX_URL=               # from dashboard, used by Python backend
+CONVEX_DEPLOY_KEY=        # for CI/deploy
+```
+
+---
+
+## Notes
+
+- Convex runs TypeScript only — schema and functions must be `.ts`
+- The Python backend uses the [convex PyPI package](https://pypi.org/project/convex/) to call these functions over HTTP
+- `social_intelligence` is stored as an array on the client record (not a separate table) — keeps queries simple at hackathon scale
+- `_generated/` is rebuilt automatically on every `npx convex dev` run — never edit it manually
