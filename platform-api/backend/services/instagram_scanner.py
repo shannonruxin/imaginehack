@@ -7,7 +7,7 @@ def scan_instagram(client: dict) -> None:
     if not handle:
         return
 
-    posts = apify.run_instagram_scraper(handle, results_limit=10)
+    posts = apify.run_instagram_scraper(handle, results_limit=3)
     if not posts:
         return
 

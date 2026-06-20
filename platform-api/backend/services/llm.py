@@ -2,8 +2,15 @@ from openai import OpenAI
 from config import settings
 import json
 
-_client = OpenAI(api_key=settings.OPENAI_API_KEY)
+_client: OpenAI | None = None
 _model = settings.LLM_MODEL
+
+
+def _get_client() -> OpenAI:
+    global _client
+    if _client is None:
+        _client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    return _client
 
 
 def _name(client: dict) -> str:
@@ -11,7 +18,7 @@ def _name(client: dict) -> str:
 
 
 def _chat(messages: list[dict], response_format: str = "json") -> str:
-    resp = _client.chat.completions.create(
+    resp = _get_client().chat.completions.create(
         model=_model,
         messages=messages,
         response_format={"type": "json_object"} if response_format == "json" else None,
@@ -54,7 +61,7 @@ def classify_signals_vision(client: dict, image_url: str) -> dict:
         "Return JSON with keys: 'signals' (list) and 'no_signal' (boolean). "
         f"Valid signals: {', '.join(LIFE_EVENT_SIGNALS)}"
     )
-    resp = _client.chat.completions.create(
+    resp = _get_client().chat.completions.create(
         model=_model,
         response_format={"type": "json_object"},
         messages=[
@@ -98,7 +105,7 @@ def synthesize_client_context(client: dict, messages: list[dict]) -> str:
         for m in messages[-20:]
     )
     user = f"Client: {_name(client)}\nRecent messages:\n{msg_text}"
-    resp = _client.chat.completions.create(
+    resp = _get_client().chat.completions.create(
         model=_model,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
     )
@@ -150,10 +157,12 @@ def classify_persona(client: dict, recent_signals: list[dict]) -> dict:
         f"Social content:\n{si_text}"
     )
     try:
-        raw = _chat(
-            [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            response_format="json",
+        resp = _get_client().chat.completions.create(
+            model=settings.CLASSIFIER_MODEL,
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            response_format={"type": "json_object"},
         )
+        raw = resp.choices[0].message.content
         data = json.loads(raw)
         return {
             "tags": [t for t in data.get("tags", []) if t in PERSONA_TAGS],

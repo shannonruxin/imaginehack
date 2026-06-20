@@ -1,4 +1,14 @@
 services:
+  backend:
+    build: ./platform-api/backend
+    image: imaginehack-backend
+    container_name: imaginehack-backend
+    ports:
+      - "8001:8000"
+    env_file:
+      - .env
+    restart: unless-stopped
+
   openclaw:
     build: .
     image: imaginehack-openclaw
@@ -11,6 +21,8 @@ services:
       - .env
     volumes:
       - openclaw-data:/root
+    depends_on:
+      - backend
     restart: unless-stopped
 
 volumes:

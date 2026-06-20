@@ -6,8 +6,9 @@ class Settings(BaseSettings):
     APIFY_API_TOKEN: str
     OPENAI_API_KEY: str
     LLM_MODEL: str = "gpt-4o"
+    CLASSIFIER_MODEL: str = "gpt-4o-mini"
     CONVEX_URL: str
-    CONVEX_DEPLOY_KEY: str
+    CONVEX_DEPLOY_KEY: str = ""
     OPENCLAW_WEBHOOK_URL: str = ""
 
     class Config:

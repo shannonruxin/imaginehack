@@ -7,7 +7,7 @@ _client = ApifyClient(settings.APIFY_API_TOKEN)
 _ACTOR_ID = "apify/instagram-post-scraper"
 
 
-def run_instagram_scraper(handle: str, results_limit: int = 10) -> list[dict]:
+def run_instagram_scraper(handle: str, results_limit: int = 3) -> list[dict]:
     run = _client.actor(_ACTOR_ID).call(run_input={
         "username": [handle],
         "resultsLimit": results_limit,
