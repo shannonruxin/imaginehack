@@ -105,6 +105,21 @@ Send the composed message. If the advisor follows up asking why or for more deta
 
 ---
 
+## Send a Message to a Client
+
+When the advisor says something like "send Ahmad: [text]" or "message Rania: [text]":
+
+1. `GET {PLATFORM_API_URL}/clients` — find the client by name, get their `number` field.
+2. Use the WhatsApp `sendMessage` tool to send the text to that number.
+3. Confirm to the advisor: "Sent to Ahmad (+60123456789)."
+
+**Rules:**
+- Only send to numbers that exist in the clients list — never send to a number the advisor types ad-hoc.
+- Send the exact message the advisor specified. Do not rephrase or add commentary.
+- If the client is not found, reply: "I couldn't find [name] in the client list."
+
+---
+
 ## What the backend understands (for context — you still just forward these)
 
 | Advisor says | Backend intent |

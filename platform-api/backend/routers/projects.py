@@ -1,7 +1,7 @@
 from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from services import convex, llm
+from services import convex, enrich as enrich_service
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -48,23 +48,7 @@ def enrich_project(id: str):
     project = convex.get_project(id)
     if not project:
         raise HTTPException(404, "Project not found")
-
-    enriched = []
-    for entry in project.get("clients", []):
-        client_id = entry["client_id"]
-        client = convex.get_client_by_id(client_id)
-        if not client:
-            continue
-        history = convex.get_chat_history(client_id) or {}
-        result = llm.suggest_approach_angle(
-            client, history.get("messages", []), client.get("recent_signals", []),
-        )
-        convex.update_project_client_status(
-            id, client_id, entry.get("status", "to_follow_up"), notes=result["angle"],
-        )
-        enriched.append({"client_id": client_id, "angle": result["angle"]})
-
-    return {"enriched": enriched}
+    return {"enriched": enrich_service.enrich_project(id)}
 
 
 @router.patch("/{project_id}/clients/{client_id}")

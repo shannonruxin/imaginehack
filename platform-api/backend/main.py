@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from cron import scheduler
 from routers import clients, messages, projects, advisor, workers
@@ -12,6 +13,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ImagineHack Platform API", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(clients.router)
 app.include_router(messages.router)

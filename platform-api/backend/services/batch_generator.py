@@ -1,5 +1,5 @@
 import httpx
-from services import llm, convex
+from services import llm, convex, enrich as enrich_service
 from config import settings
 
 
@@ -58,6 +58,7 @@ def generate_weekly_project() -> None:
         "clients": project_clients,
     })
 
+    enrich_service.enrich_project(project_id)
     _notify_advisor(batch, clients_and_signals, project_id)
 
 

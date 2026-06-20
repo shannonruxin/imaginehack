@@ -7,6 +7,27 @@ services:
       - "8001:8000"
     env_file:
       - .env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  baileys:
+    build: ./platform-api/baileys
+    image: imaginehack-baileys
+    container_name: imaginehack-baileys
+    ports:
+      - "3001:3001"
+    env_file:
+      - .env
+    environment:
+      - PLATFORM_API_URL=http://backend:8000
+    volumes:
+      - baileys-auth:/app/auth
+    depends_on:
+      - backend
     restart: unless-stopped
 
   openclaw:
@@ -27,3 +48,4 @@ services:
 
 volumes:
   openclaw-data:
+  baileys-auth:
