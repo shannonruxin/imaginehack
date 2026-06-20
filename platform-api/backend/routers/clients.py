@@ -56,6 +56,8 @@ def list_clients():
 @router.get("/exists")
 def client_exists(number: str = Query(...)):
     client = convex.get_client_by_number(number)
+    if not client and not number.startswith("+"):
+        client = convex.get_client_by_number("+" + number)
     return {"exists": client is not None, "client_id": client["_id"] if client else None}
 
 

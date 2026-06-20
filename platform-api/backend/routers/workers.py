@@ -45,6 +45,18 @@ def worker_resolve_handles(bg: BackgroundTasks):
     return {"queued": len(clients)}
 
 
+@router.post("/scan-client/{client_id}")
+def worker_scan_client(client_id: str, bg: BackgroundTasks):
+    client = convex.get_client_by_id(client_id)
+    if not client:
+        from fastapi import HTTPException
+        raise HTTPException(404, "Client not found")
+    bg.add_task(scan_linkedin, client)
+    bg.add_task(scan_instagram, client)
+    bg.add_task(scan_legacy, client)
+    return {"queued": 3, "client_id": client_id}
+
+
 @router.post("/generate-batch")
 def worker_generate_batch(bg: BackgroundTasks):
     bg.add_task(generate_weekly_project)

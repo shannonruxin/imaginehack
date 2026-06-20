@@ -8,13 +8,46 @@ const {
 } = require("@whiskeysockets/baileys");
 const qrcode = require("qrcode-terminal");
 const pino = require("pino");
+const axios = require("axios");
 const { isTrackedClient } = require("./filter");
 const { postMessage } = require("./poster");
+const lidCache = require("./lidCache");
+
+const API_URL = process.env.PLATFORM_API_URL || "http://127.0.0.1:8000";
 
 const app = express();
 app.use(express.json());
 
 let sock;
+
+async function seedLidCache() {
+  try {
+    const resp = await axios.get(`${API_URL}/clients`, { timeout: 10000 });
+    const clients = resp.data || [];
+    const numbers = clients
+      .map(c => c.number?.replace(/^\+/, ""))
+      .filter(Boolean);
+
+    console.log(`Seeding LID cache for ${numbers.length} clients...`);
+    for (const number of numbers) {
+      try {
+        const results = await sock.onWhatsApp(`${number}@s.whatsapp.net`);
+        for (const r of results || []) {
+          if (r.jid?.endsWith("@lid") || r.lid) {
+            const lid = r.lid || r.jid;
+            lidCache.set(lid, `${number}@s.whatsapp.net`);
+            console.log(`Cached: ${lid} -> ${number}`);
+          }
+        }
+      } catch {
+        // individual lookup failures are non-fatal
+      }
+    }
+    console.log("LID cache seeded.");
+  } catch (err) {
+    console.error("Failed to seed LID cache:", err.message);
+  }
+}
 
 async function connectToWA() {
   const { state, saveCreds } = await useMultiFileAuthState("auth");
@@ -38,17 +71,40 @@ async function connectToWA() {
       if (shouldReconnect) setTimeout(connectToWA, 5000);
     } else if (connection === "open") {
       console.log("WhatsApp connected");
+      seedLidCache();
     }
   });
 
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
-    if (type !== "notify") return;
+    if (type !== "notify" && type !== "append") return;
 
     for (const msg of messages) {
-      if (msg.key.fromMe) continue;
+      const fromMe = msg.key.fromMe;
 
-      const jid = msg.key.remoteJid || "";
-      if (jid.endsWith("@g.us")) continue; // skip groups
+      let jid = msg.key.remoteJid || "";
+
+      // resolve LID to real phone JID
+      if (jid.endsWith("@lid")) {
+        if (fromMe) {
+          const cached = lidCache.get(jid);
+          if (cached) jid = cached;
+          else {
+            console.log("Outbound LID not in cache:", jid);
+            continue;
+          }
+        } else {
+          const senderPn = msg.key.senderPn;
+          if (senderPn) {
+            lidCache.set(jid, senderPn);
+            jid = senderPn;
+          } else {
+            console.log("No senderPn for inbound LID:", jid);
+            continue;
+          }
+        }
+      }
+
+      if (!jid.endsWith("@s.whatsapp.net")) continue;
 
       const phoneNumber = jid.replace("@s.whatsapp.net", "");
       const tracked = await isTrackedClient(phoneNumber);
@@ -61,8 +117,10 @@ async function connectToWA() {
 
       if (!body) continue;
 
+      const direction = fromMe ? "outbound" : "inbound";
       const timestamp = new Date(Number(msg.messageTimestamp) * 1000).toISOString();
-      await postMessage({ phoneNumber, body, timestamp, direction: "inbound" });
+      console.log(`Posting ${direction} message:`, phoneNumber, body);
+      await postMessage({ phoneNumber, body, timestamp, direction });
     }
   });
 }

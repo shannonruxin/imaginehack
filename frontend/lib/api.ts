@@ -54,6 +54,7 @@ export const suggestAngle = (clientId: string) =>
 export const scanLinkedIn = () => req("/workers/scan-linkedin", { method: "POST" });
 export const scanInstagram = () => req("/workers/scan-instagram", { method: "POST" });
 export const scanLegacy = () => req("/workers/scan-legacy", { method: "POST" });
+export const scanClient = (id: string) => req(`/workers/scan-client/${id}`, { method: "POST" });
 export const generateBatch = () => req("/workers/generate-batch", { method: "POST" });
 
 // Types

@@ -16,6 +16,8 @@ class InboundMessage(BaseModel):
 @router.post("/messages")
 def receive_message(body: InboundMessage):
     client = convex.get_client_by_number(body.phone_number)
+    if not client and not body.phone_number.startswith("+"):
+        client = convex.get_client_by_number("+" + body.phone_number)
     if not client:
         raise HTTPException(404, "Client not found")
 

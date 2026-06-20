@@ -42,7 +42,7 @@ export const getByNumber = query({
     return await ctx.db
       .query("clients")
       .withIndex("by_number", q => q.eq("number", args.number))
-      .unique();
+      .first();
   },
 });
 

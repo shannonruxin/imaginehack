@@ -5,7 +5,7 @@ import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip,
   ResponsiveContainer, Legend
 } from "recharts";
-import { getClients, queryClients, type Client } from "@/lib/api";
+import { getClients, queryClients, scanLinkedIn, scanInstagram, scanLegacy, type Client } from "@/lib/api";
 
 // ── colour palette ──────────────────────────────────────────────────────────
 const COLORS = ["#6366f1", "#f59e0b", "#10b981", "#ef4444", "#3b82f6", "#a855f7", "#ec4899", "#14b8a6"];
@@ -180,6 +180,8 @@ export default function ClientsPage() {
   const [llmQuery, setLlmQuery] = useState("");
   const [llmLoading, setLlmLoading] = useState(false);
   const [llmResult, setLlmResult] = useState<{ matching_ids: string[]; explanation: string } | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanMsg, setScanMsg] = useState<string | null>(null);
 
   useEffect(() => {
     getClients()
@@ -214,6 +216,19 @@ export default function ClientsPage() {
     return list;
   }, [allClients, search, filters, llmResult]);
 
+  async function handleScanAll() {
+    setScanning(true);
+    setScanMsg(null);
+    try {
+      await Promise.all([scanLinkedIn(), scanInstagram(), scanLegacy()]);
+      setScanMsg(`Scan queued for ${allClients.length} clients — results update in the background.`);
+    } catch {
+      setScanMsg("Scan failed — check API keys.");
+    } finally {
+      setScanning(false);
+    }
+  }
+
   async function handleLlmQuery() {
     if (!llmQuery.trim()) return;
     setLlmLoading(true);
@@ -247,6 +262,10 @@ export default function ClientsPage() {
               </button>
             ))}
           </div>
+          <button onClick={handleScanAll} disabled={scanning}
+            className="inline-flex items-center justify-center rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50 transition-colors">
+            {scanning ? "Queuing…" : "↻ Fetch all socials"}
+          </button>
           <Link href="/clients/new"
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
             Add client
@@ -254,6 +273,7 @@ export default function ClientsPage() {
         </div>
       </div>
 
+      {scanMsg && <p className="text-sm text-muted-foreground mb-4">{scanMsg}</p>}
       {loading && <p className="text-muted-foreground">Loading…</p>}
       {error && <p className="text-sm text-red-500">{error}</p>}
 
