@@ -5,7 +5,7 @@
 
 ## 1. Overview
 
-A social listening system for life insurance advisors. Monitors tracked clients' public social profiles to detect life events that signal a good time to reach out. Surfaces a weekly outreach batch to the advisor: "Work on these clients this week — here's why."
+A social listening system for life insurance advisors. Monitors tracked clients' public social profiles to detect life events that signal a good time to reach out. Surfaces a weekly outreach project to the advisor: "Work on these clients this week — here's why."
 
 **Scope for this hackathon**: social listening + WhatsApp chat history logging. No outreach sending yet.
 
@@ -16,7 +16,7 @@ A social listening system for life insurance advisors. Monitors tracked clients'
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                          Convex DB                              │
-│         clients | messages | projects                           │
+│              clients | projects | chat_history                  │
 └──────────────────────────────┬──────────────────────────────────┘
                                │
               ┌────────────────▼─────────────────┐
@@ -92,41 +92,38 @@ A social listening system for life insurance advisors. Monitors tracked clients'
 Runs once when a client is added. Finds their Instagram handle and LinkedIn URL before any paid API calls are made.
 
 ```
-Client added to DB { name, company, city, occupation }
+Client added to DB { first_name, last_name, socials[], occupation }
         │
         ▼
 Exa search (free, 20k req/month) — run in parallel:
-  - '"[name]" [company] site:instagram.com'
-  - '"[name]" "[city]" instagram'
-  - '"[name]" [company] site:linkedin.com'
+  - '"[name]" [occupation] site:instagram.com'
+  - '"[name]" instagram'
+  - '"[name]" [occupation] site:linkedin.com'
         │
         ▼
 LLM scores each candidate:
-  +3  bio mentions client's company
-  +2  bio mentions client's city
+  +3  bio mentions client's occupation
   +2  display name matches client name
+  +2  city keyword in bio
   +1  industry keyword in bio
-  +1  LinkedIn profile links to this IG
         │
         ├── HIGH (≥ 6)  → auto-store, begin monitoring
         ├── MEDIUM (3–5) → dashboard: "Is this [name]? [link] — Confirm / Reject"
         └── LOW (< 3)   → dashboard: "Add [name]'s handle manually"
 ```
 
-Stored on client record inside `social_intelligence[]`. Never re-runs unless advisor requests.
+Stored as an entry in `clients.socials[]`. Never re-runs unless advisor requests.
 
 ---
 
 ## 6. Convex DB Schema
 
-Each table owns one concern. No field is duplicated across tables.
+Three tables. No field is duplicated across tables.
 
 | Table | Owns |
 | --- | --- |
-| `clients` | Identity, profile, insurance, social handles + scan schedule |
-| `signals` | Every detected life event (source of truth) |
-| `outreach_batches` | Weekly auto-generated advisor recommendations |
-| `projects` | Advisor-created campaigns and outreach workflow |
+| `clients` | Full client profile including social intelligence fetched data |
+| `projects` | Weekly auto-generated outreach todo list — each row is a batch for the week |
 | `chat_history` | WhatsApp message log — reserved for OpenClaw only |
 
 ---
@@ -134,165 +131,118 @@ Each table owns one concern. No field is duplicated across tables.
 ### Table 1: `clients`
 
 ```
-_id                           auto
+_id                             auto
 
--- Core info
-name                          string
-age                           number
-number                        string              -- WhatsApp / phone
-nationality                   string
-email                         string
-occupation                    string
-income_range                  string              -- e.g. "5000-10000"
-website                       string | null
+-- Demographic
+first_name                      string
+last_name                       string
+age                             number
+nationality                     string
+income_range                    string              -- e.g. "RM 8,000–12,000"
 
--- Personal profile
-marital_status                "single" | "married" | "divorced" | "engaged"
-no_of_dependents              number
+-- Contact
+number                          string              -- WhatsApp / phone (E.164)
+email                           string
 
--- Insurance
-existing_policies             array of:
-  policy_id                     string
-  name                          string
-  type                          string            -- "life" | "medical" | "investment-linked" | "critical-illness" | etc.
-  start_date                    string            -- ISO date
-  end_date                      string | null
-  beneficiaries                 string[]
+-- Socials (optional, multiple entries, one per platform/link)
+socials                         array of:
+  type                            "website" | "instagram" | "linkedin"
+  value                           string            -- URL or handle
 
--- Goals & opportunities
-financial_goals               array of:
-                                "education_fund" | "retirement" | "housing" | string
-sales_opportunities           string[]            -- free text notes e.g. "Upgrade term to whole life"
+-- Family
+marital_status                  "single" | "married" | "divorced" | "engaged"
+dependents                      array of:
+  relationship                    "spouse" | "child" | "parent" | "sibling" | "grandparent" | "grandchild" | "in_law" | "other"
+  first_name                      string
+  last_name                       string
+  age                             number
 
--- Social intelligence (one entry per platform, updated in place by backend cron)
-social_intelligence           array of:
-  platform                      "linkedin" | "instagram" | "legacy"
-  handle                        string | null     -- username for instagram, profile url for linkedin
-  handle_confidence             "confirmed" | "auto" | "pending" | null
-  last_checked                  number | null     -- timestamp
-  next_check                    number | null     -- last_checked + 24h
-  data_found                    array of:
-    signal_type                   string          -- "new_job" | "pregnancy" | "family_death" | etc.
-    summary                       string          -- "Posted pregnancy announcement on 17 Jun"
-    detected_at                   number          -- timestamp
-  pending_batch                 boolean           -- signals found, not yet batched
+-- Existing insurance
+existing_policies               array of:
+  policy_id                       string
+  name                            string
+  type                            "term_life" | "whole_life" | "medical" | "critical_illness" | "takaful" | "investment_linked" | "other"
+  start_date                      string            -- ISO date
+  end_date                        string | null
+  beneficiaries                   array of:
+    relationship                    "spouse" | "child" | "parent" | "sibling" | "grandparent" | "grandchild" | "in_law" | "other"
+    first_name                      string
+    last_name                       string
 
-created_at                    number
+-- Sales opportunities (log of noted opportunities, newest first)
+sales_opportunities             array of:
+  created_at                      number            -- timestamp
+  description                     string            -- e.g. "Consider education endowment for first child"
+
+-- Social intelligence (append-only fetch log — one entry per scan run)
+social_intelligence             array of:
+  date_fetched                    number            -- timestamp
+  platform                        "linkedin" | "instagram" | "legacy"
+  content                         string            -- raw JSON string of what Exa / Apify returned
+
+created_at                      number
 ```
+
+**Notes on `social_intelligence`**:
+- Each cron scan appends a new entry — never overwrites.
+- `content` stores whatever Exa or Apify returned verbatim (serialised JSON string), so the LLM prompt always has the raw source to reason about.
+- The LLM reads the latest entry per platform to detect signals. Older entries are retained for history.
 
 ---
 
 ### Table 2: `projects`
 
+The weekly outreach todo list. Generated automatically by the Monday batch cron. Can also be created manually by the advisor. Each row is a standalone batch — a set of clients to work on that week with a shared angle.
+
 ```
-_id                           auto
+_id                             auto
 
-name                          string              -- e.g. "June 2026 Young Families Drive"
-sales_angle                   string              -- e.g. "Focus on dependent coverage for new parents"
-created_at                    number
+batch_sales_angle               string              -- e.g. "Young families — focus on dependent coverage"
+created_at                      number
 
-clients                       array of:
-  client_id                     reference → clients
-  notes                         string | null     -- per-client notes within this project
-  status                        "pending" | "contacted" | "responded" | "closed_won" | "closed_lost"
-  outreached                    boolean
-```
-
----
-
-### Table 3: `outreach_batches`
-
-Weekly auto-generated recommendations. Written by `generate_outreach_batch()`. Separate from advisor-created projects.
-
-```ts
-outreach_batches: defineTable({
-  week_of: v.string(),           // ISO date of Monday, e.g. "2026-06-23"
-  batch_sales_angle: v.string(), // LLM-generated weekly summary
-  created_at: v.number(),
-
-  clients: v.array(v.object({
-    client_id: v.id("clients"),
-    notes: v.string(),           // "New job — review coverage limit"
-    outreached: v.boolean(),
-  })),
-})
-.index("by_week", ["week_of"])
+clients                         array of:
+  client_id                       reference → clients
+  notes                           string | null     -- per-client outreach context
+  status                          "to_follow_up" | "meeting_rescheduled" | "stale" | "help_me_out"
+  next_follow_up_scheduled        string | null     -- ISO date, optional
+  next_meeting_scheduled          string | null     -- ISO date, optional
 ```
 
 ---
 
-### Table 4: `projects`
-
-Advisor-created campaigns. Not generated by cron — created manually to track a sales initiative across clients.
-
-```ts
-projects: defineTable({
-  name: v.string(),         // "June 2026 Young Families Drive"
-  sales_angle: v.string(),
-  created_at: v.number(),
-
-  clients: v.array(v.object({
-    client_id: v.id("clients"),
-    notes: v.optional(v.string()),
-    status: v.union(
-      v.literal("pending"),
-      v.literal("contacted"),
-      v.literal("responded"),
-      v.literal("closed_won"),
-      v.literal("closed_lost")
-    ),
-    outreached: v.boolean(),
-  })),
-})
-```
-
----
-
-### Table 5: `chat_history`
+### Table 3: `chat_history`
 
 Reserved for OpenClaw only. Stores the WhatsApp conversation history grouped by client. Each client has one chat_history record containing all messages inside a nested JSON array. The Python backend never reads or writes here.
 
-```ts
-
-chat_history: defineTable({
-
-  client_id: v.id("clients"),
-
-  // all WhatsApp messages for this client
-  messages: v.array(v.object({
-
-    // who sent the message
-    sender: v.union(
-
-      v.literal("client"),
-      v.literal("advisor")
-
-    ),
-    // actual WhatsApp message
-    message: v.string(),
-
-    // when it happened
-    timestamp: v.number()
-
-  }))
-})
-.index("by_client", ["client_id"])
 ```
+_id                             auto
+
+client_id                       reference → clients
+
+messages                        array of:
+  sender                          "client" | "advisor"
+  message                         string
+  timestamp                       number
+
+updated_at                      number
+```
+
+Index: `by_client_id` on `client_id`
 
 ---
 
-### What each update touches
+### What each operation touches
 
 | Operation | Table written |
 | --- | --- |
 | Add new client | `clients` only |
-| Resolve Instagram / LinkedIn handle | `clients.platforms` only |
-| Scan detects a signal | `signals` only (insert new row) |
-| Generate weekly batch | `signals.batched = true`, insert into `outreach_batches` |
-| Advisor marks signal actioned | `signals.actioned = true` only |
-| Advisor marks outreached in batch | `outreach_batches.clients[].outreached` only |
-| Advisor updates project status | `projects.clients[].status` only |
-| OpenClaw receives/sends WA message | chat_history.messages array updated |
+| Resolve Instagram / LinkedIn handle | `clients.socials[]` — append or update entry |
+| Scan runs (Exa / Apify) | `clients.social_intelligence[]` — append new fetch entry |
+| Generate weekly batch | Insert row into `projects` with flagged clients |
+| Advisor marks client status | `projects.clients[].status` |
+| Advisor sets follow-up date | `projects.clients[].next_follow_up_scheduled` |
+| Advisor logs sales opportunity | `clients.sales_opportunities[]` — append entry |
+| OpenClaw receives/sends WA message | `chat_history.messages[]` — append |
 
 ---
 
@@ -303,21 +253,26 @@ chat_history: defineTable({
 POST   /clients                         Add client (triggers handle resolution)
 GET    /clients                         List all clients
 GET    /clients/:id                     Get client detail
-PATCH  /clients/:id                     Update client
+PATCH  /clients/:id                     Update client fields
 GET    /clients/exists?number=          Check if number is a tracked client (used by Baileys)
+```
+
+### Social Opportunities
+```
+POST   /clients/:id/opportunities       Append a new sales opportunity { description }
 ```
 
 ### Handle Resolution
 ```
 GET    /clients/:id/resolution          Get resolution status + candidates
-POST   /clients/:id/resolution/confirm  { handle, platform } — advisor confirms
+POST   /clients/:id/resolution/confirm  { type, value } — advisor confirms handle
 POST   /clients/:id/resolution/skip     Skip social monitoring for this client
-POST   /clients/:id/resolution/manual   { handle, platform } — advisor sets manually
+POST   /clients/:id/resolution/manual   { type, value } — advisor sets manually
 ```
 
 ### Messages (written by Baileys, read by backend for LLM synthesis)
 ```
-POST   /internal/messages               Baileys writes incoming messages
+POST   /internal/messages               Baileys writes incoming client messages
 GET    /clients/:id/messages            Get message history for a client
 ```
 
@@ -331,10 +286,10 @@ POST   /advisor/message
 
 ### Projects
 ```
-GET    /projects                        List projects
-POST   /projects                        Create project manually
-GET    /projects/:id                    Get project detail
-PATCH  /projects/:id/clients/:clientId  Update client status within project
+GET    /projects                                          List projects (newest first)
+POST   /projects                                          Create project manually
+GET    /projects/:id                                      Get project detail
+PATCH  /projects/:id/clients/:clientId                    Update client status / dates within project
 ```
 
 ### Internal workers (called by APScheduler cron, not exposed publicly)
@@ -343,13 +298,13 @@ PATCH  /projects/:id/clients/:clientId  Update client status within project
 /workers/scan-linkedin      Scan LinkedIn for due clients
 /workers/scan-instagram     Scan Instagram for due clients
 /workers/scan-legacy        Scan Legacy.com for due clients
-/workers/generate-batch     Generate weekly project from signals
+/workers/generate-batch     Generate weekly project from latest social intelligence
 /workers/notify-advisor     Trigger OpenClaw to message advisor
 ```
 
 ---
 
-## 9. Backend Cron — Social Intelligence Pipeline
+## 8. Backend Cron — Social Intelligence Pipeline
 
 All scanning owned by Python backend (APScheduler). Neither Baileys nor OpenClaw are involved.
 
@@ -361,84 +316,87 @@ Monday 06:00 AM  →  generate_weekly_project()
 
 ### Daily Scan — `scan_due_clients()`
 
-Exa and Apify fetch content daily. LLM only runs if content changed since last scan (hash check). This keeps OpenClaw out of scanning entirely — it has no role here.
+Exa and Apify fetch content daily. LLM only runs if content changed since last scan (hash check on `content`). This keeps OpenClaw out of scanning entirely.
 
 ```
-1. Query clients WHERE any social_intelligence[].next_check < now()
+1. Query all clients
 
-2. For each due client, per platform in parallel:
+2. For each client, per platform in parallel:
 
    LinkedIn
-     if handle set:
-       raw = exa.search(query=site:{linkedin_url}, text=true)
+     find entry in socials[] where type == "linkedin"
+     if found:
+       raw = exa.search(query=site:{value}, text=true)
        hash = md5(raw.text)
-       if hash == social_intelligence[linkedin].content_hash:
-         → skip LLM, just update last_checked + next_check  ← no credit spent
+       last_entry = latest social_intelligence[] where platform == "linkedin"
+       if hash == md5(last_entry.content):
+         → skip LLM, no new entry written
        else:
          → LLM classifies signals from raw.text
-         → update social_intelligence[linkedin]:
-             last_checked, next_check, content_hash=hash, data_found
+         → append to social_intelligence[]: { date_fetched, platform: "linkedin", content: json_str(raw) }
      else:
        → run handle resolution
 
    Instagram
-     if handle confirmed:
+     find entry in socials[] where type == "instagram"
+     if found:
        posts = apify.actor("instagram-profile-scraper")
-                 .call({ usernames: [handle], resultsLimit: 10 })
+                 .call({ usernames: [value], resultsLimit: 10 })
        hash = md5(join(post.caption for post in posts))
-       if hash == social_intelligence[instagram].content_hash:
-         → skip LLM, update timestamps only
+       last_entry = latest social_intelligence[] where platform == "instagram"
+       if hash == md5(last_entry.content):
+         → skip LLM, no new entry written
        else:
          → LLM classifies signals (+ vision LLM for captionless images)
-         → update social_intelligence[instagram]: content_hash=hash, data_found
+         → append to social_intelligence[]: { date_fetched, platform: "instagram", content: json_str(posts) }
      else:
        → run handle resolution
 
    Legacy.com
-     raw = exa.search('"{name}" obituary "{city}"', includeDomains=["legacy.com"])
+     name = first_name + " " + last_name
+     raw = exa.search('"{name}" obituary', includeDomains=["legacy.com"])
      hash = md5(raw.text)
-     if hash == social_intelligence[legacy].content_hash:
-       → skip LLM, update timestamps only
+     last_entry = latest social_intelligence[] where platform == "legacy"
+     if hash == md5(last_entry.content):
+       → skip LLM, no new entry written
      else:
-       → LLM checks for family member matches
-       → update social_intelligence[legacy]: content_hash=hash, data_found
+       → LLM checks for dependent name matches
+       → append to social_intelligence[]: { date_fetched, platform: "legacy", content: json_str(raw) }
 
-3. If new signals found → set pending_batch = true
+3. If new signals found → flag client for batch inclusion
 ```
 
-**Result**: Exa/Apify runs daily (cheap). LLM only fires when content actually changed. OpenClaw never involved.
+**Result**: Exa/Apify runs daily (cheap). LLM only fires when content actually changed.
 
 ### Weekly Project — `generate_weekly_project()`
 
 ```
-1. Query clients WHERE any social_intelligence[].pending_batch = true
-
-2. For each flagged client, collect all signals, score urgency:
+1. For each client, read the latest social_intelligence[] entries per platform
+   LLM extracts signals and scores urgency:
      family_death, pregnancy          → HIGH
      new_baby, marriage, new_home     → HIGH
      new_job, promotion               → MEDIUM
      layoff, retirement, divorce      → MEDIUM
 
-3. LLM generates project name + sales_angle from signal summary
+2. Collect clients with HIGH or MEDIUM signals detected since last batch
 
-4. Write projects record:
+3. LLM generates batch_sales_angle from aggregated signal summary
+
+4. Insert projects record:
    {
-     name: "Week of 22 Jun — Young Families + Income Changes",
-     sales_angle: "...",
+     batch_sales_angle: "Young families + new income changes — review coverage limits",
      clients: [
-       { client_id: bob,   notes: "New job at CIMB — review coverage", status: "pending" },
-       { client_id: sarah, notes: "Pregnancy — dependent coverage pitch", status: "pending" }
+       { client_id: ..., notes: "New job at CIMB — review coverage", status: "to_follow_up" },
+       { client_id: ..., notes: "Pregnancy post detected — dependent coverage pitch", status: "to_follow_up" }
      ]
    }
 
-5. Set pending_batch = false for all included clients
-
-6. POST /workers/notify-advisor → OpenClaw sends WA message to advisor
+5. POST /workers/notify-advisor → OpenClaw sends WA message to advisor
 ```
 
 ---
 
-## 10. OpenClaw — Thin WA Adapter
+## 9. OpenClaw — Thin WA Adapter
 
 OpenClaw has zero business logic. It receives advisor messages, POSTs to backend, sends reply back.
 
@@ -453,23 +411,23 @@ Advisor texts OpenClaw
 ### What advisor can say
 | Message | Backend does |
 |---------|-------------|
-| "Remind me about Raina tomorrow" | Queries Raina's messages from Convex → LLM extracts follow-ups → schedules reminder |
-| "What's up with Ahmad?" | Queries Ahmad's messages + social signals → LLM summarizes → returns |
-| "Who should I call this week?" | Returns current week's project clients |
-| "Ahmad's Instagram is @ahmadfariz92" | Writes handle to client record |
+| "Remind me about Raina tomorrow" | Queries Raina's chat_history → LLM extracts follow-ups → schedules reminder |
+| "What's up with Ahmad?" | Queries Ahmad's chat_history + latest social_intelligence → LLM summarizes |
+| "Who should I call this week?" | Returns current week's project clients + notes |
+| "Ahmad's Instagram is @ahmadfariz92" | Appends entry to clients.socials[] |
 
 OpenClaw never touches Convex directly — always via `/advisor/message`.
 
 ---
 
-## 11. Signal Detection — LLM Prompt
+## 10. Signal Detection — LLM Prompt
 
 **Input**
 ```json
 {
-  "client": { "name": "Ahmad Fariz", "company": "Maybank", "city": "KL" },
+  "client": { "first_name": "Ahmad", "last_name": "Fariz", "occupation": "Software Engineer" },
   "platform": "instagram",
-  "content": [{ "date": "2026-06-15", "caption": "Alhamdulillah, our little one is here 🍼" }]
+  "content": "[{\"date\": \"2026-06-15\", \"caption\": \"Alhamdulillah, our little one is here 🍼\"}]"
 }
 ```
 
@@ -490,22 +448,22 @@ Vision LLM fires for Instagram images with no caption text.
 
 ---
 
-## 12. Build Order
+## 11. Build Order
 
-1. **Convex schema** — `clients`, `messages`, `projects` tables
+1. **Convex schema** — `clients`, `projects`, `chat_history`
 2. **Python API skeleton** — FastAPI, all endpoints stubbed
 3. **Baileys service** — session, message filter, POST to backend
-4. **Handle resolution** — Exa search + LLM scoring + store
-5. **LinkedIn scanner** — Exa + LLM signal detection
-6. **Instagram scanner** — Apify + LLM (+ vision for images)
-7. **Legacy.com scanner** — Exa + LLM family match
-8. **Weekly batch** — aggregate signals → write project → notify
+4. **Handle resolution** — Exa search + LLM scoring + append to `socials[]`
+5. **LinkedIn scanner** — Exa fetch → append to `social_intelligence[]` → LLM signal detection
+6. **Instagram scanner** — Apify fetch → append to `social_intelligence[]` → LLM (+ vision for images)
+7. **Legacy.com scanner** — Exa fetch → append to `social_intelligence[]` → LLM family match
+8. **Weekly batch** — read latest social_intelligence per client → write project → notify
 9. **Advisor intent handler** — `/advisor/message` → LLM routes and responds
 10. **OpenClaw wiring** — single skill: receive msg → POST to backend → reply
 
 ---
 
-## 13. Environment Variables
+## 12. Environment Variables
 
 ```
 # Exa
@@ -531,12 +489,13 @@ OPENCLAW_WEBHOOK_URL=
 
 ---
 
-## 14. Constraints & Notes
+## 13. Constraints & Notes
 
 - **ToS**: Apify/Exa scraping of LinkedIn/Instagram violates their ToS. Fine for hackathon, needs legal review for production.
 - **Baileys filters at source** — only tracked client numbers are stored. Non-client messages never touch the DB.
 - **Vision LLM** — required for Instagram images with no caption. Use GPT-4o vision or Gemini.
-- **Legacy.com quality** — depends on having known family member names. Prompt advisor during client onboarding.
+- **Legacy.com quality** — depends on having known dependent/family member names. Prompt advisor during client onboarding.
 - **Apify free tier** — 5 crawls/month. For demo, trigger per client manually rather than bulk daily scan.
 - **Baileys session** — QR scan required on first run. Session persisted to disk, auto-reconnects on pod restart.
-- **Message backfill** — for clients added after Baileys was running, only future messages are captured. Historical WA messages before Baileys started are not available unless `fetchMessageHistory` backfill is implemented (future).
+- **social_intelligence append-only** — each scan creates a new row in the array. No overwrites. This preserves fetch history and lets the LLM compare across time if needed.
+- **Message backfill** — for clients added after Baileys was running, only future messages are captured.

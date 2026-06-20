@@ -1,6 +1,27 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
+const relationship = v.union(
+  v.literal("spouse"),
+  v.literal("child"),
+  v.literal("parent"),
+  v.literal("sibling"),
+  v.literal("grandparent"),
+  v.literal("grandchild"),
+  v.literal("in_law"),
+  v.literal("other"),
+);
+
+const policyType = v.union(
+  v.literal("term_life"),
+  v.literal("whole_life"),
+  v.literal("medical"),
+  v.literal("critical_illness"),
+  v.literal("takaful"),
+  v.literal("investment_linked"),
+  v.literal("other"),
+);
+
 export const getAll = query({
   args: {},
   handler: async (ctx) => {
@@ -15,39 +36,66 @@ export const getById = query({
   },
 });
 
+export const getByNumber = query({
+  args: { number: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("clients")
+      .withIndex("by_number", q => q.eq("number", args.number))
+      .unique();
+  },
+});
+
 export const create = mutation({
   args: {
-    name: v.string(),
+    first_name: v.string(),
+    last_name: v.string(),
     age: v.number(),
-    number: v.string(),
     nationality: v.string(),
-    email: v.string(),
-    occupation: v.string(),
     income_range: v.string(),
-    website: v.optional(v.string()),
-    known_family_members: v.array(v.string()),
+    number: v.string(),
+    email: v.string(),
     marital_status: v.union(
       v.literal("single"),
       v.literal("married"),
       v.literal("divorced"),
-      v.literal("engaged")
+      v.literal("engaged"),
     ),
-    no_of_dependents: v.number(),
-    existing_policies: v.array(v.object({
+    dependents: v.optional(v.array(v.object({
+      relationship,
+      first_name: v.string(),
+      last_name: v.string(),
+      age: v.optional(v.number()),
+    }))),
+    existing_policies: v.optional(v.array(v.object({
       policy_id: v.string(),
       name: v.string(),
-      type: v.string(),
+      type: policyType,
       start_date: v.string(),
       end_date: v.optional(v.string()),
-      beneficiaries: v.array(v.string()),
-    })),
-    financial_goals: v.array(v.string()),
-    sales_opportunities: v.array(v.string()),
+      beneficiaries: v.array(v.object({
+        relationship,
+        first_name: v.string(),
+        last_name: v.string(),
+      })),
+    }))),
+    socials: v.optional(v.array(v.object({
+      type: v.union(v.literal("website"), v.literal("instagram"), v.literal("linkedin")),
+      value: v.string(),
+    }))),
+    sales_opportunities: v.optional(v.array(v.object({
+      created_at: v.number(),
+      description: v.string(),
+    }))),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("clients", {
       ...args,
-      platforms: [],
+      dependents: args.dependents ?? [],
+      existing_policies: args.existing_policies ?? [],
+      socials: args.socials ?? [],
+      sales_opportunities: args.sales_opportunities ?? [],
+      social_intelligence: [],
       created_at: Date.now(),
     });
   },
@@ -56,21 +104,19 @@ export const create = mutation({
 export const update = mutation({
   args: {
     id: v.id("clients"),
-    name: v.optional(v.string()),
+    first_name: v.optional(v.string()),
+    last_name: v.optional(v.string()),
     age: v.optional(v.number()),
-    number: v.optional(v.string()),
-    occupation: v.optional(v.string()),
+    nationality: v.optional(v.string()),
     income_range: v.optional(v.string()),
+    number: v.optional(v.string()),
+    email: v.optional(v.string()),
     marital_status: v.optional(v.union(
       v.literal("single"),
       v.literal("married"),
       v.literal("divorced"),
-      v.literal("engaged")
+      v.literal("engaged"),
     )),
-    no_of_dependents: v.optional(v.number()),
-    financial_goals: v.optional(v.array(v.string())),
-    sales_opportunities: v.optional(v.array(v.string())),
-    known_family_members: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const { id, ...fields } = args;
@@ -78,62 +124,68 @@ export const update = mutation({
   },
 });
 
-export const updatePlatformHandle = mutation({
+export const addSocial = mutation({
   args: {
     id: v.id("clients"),
-    platform: v.union(
-      v.literal("linkedin"),
-      v.literal("instagram"),
-      v.literal("legacy")
-    ),
-    handle: v.optional(v.string()),
-    handle_confidence: v.optional(v.union(
-      v.literal("confirmed"),
-      v.literal("auto"),
-      v.literal("pending")
-    )),
+    type: v.union(v.literal("website"), v.literal("instagram"), v.literal("linkedin")),
+    value: v.string(),
   },
   handler: async (ctx, args) => {
     const client = await ctx.db.get(args.id);
     if (!client) throw new Error("Client not found");
-
-    const platforms = client.platforms.filter(p => p.platform !== args.platform);
-    const existing = client.platforms.find(p => p.platform === args.platform) ?? {};
-    platforms.push({
-      ...existing,
-      platform: args.platform,
-      handle: args.handle,
-      handle_confidence: args.handle_confidence,
-    });
-
-    await ctx.db.patch(args.id, { platforms });
+    const socials = client.socials.filter(s => s.type !== args.type);
+    socials.push({ type: args.type, value: args.value });
+    await ctx.db.patch(args.id, { socials });
   },
 });
 
-export const updateScanSchedule = mutation({
+export const addDependent = mutation({
   args: {
     id: v.id("clients"),
-    platform: v.union(
-      v.literal("linkedin"),
-      v.literal("instagram"),
-      v.literal("legacy")
-    ),
-    last_checked: v.number(),
-    next_check: v.number(),
+    relationship,
+    first_name: v.string(),
+    last_name: v.string(),
+    age: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const client = await ctx.db.get(args.id);
     if (!client) throw new Error("Client not found");
+    const { id, ...dependent } = args;
+    await ctx.db.patch(id, { dependents: [...client.dependents, dependent] });
+  },
+});
 
-    const platforms = client.platforms.filter(p => p.platform !== args.platform);
-    const existing = client.platforms.find(p => p.platform === args.platform) ?? { platform: args.platform };
-    platforms.push({
-      ...existing,
-      platform: args.platform,
-      last_checked: args.last_checked,
-      next_check: args.next_check,
+export const addSalesOpportunity = mutation({
+  args: {
+    id: v.id("clients"),
+    description: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const client = await ctx.db.get(args.id);
+    if (!client) throw new Error("Client not found");
+    await ctx.db.patch(args.id, {
+      sales_opportunities: [
+        ...client.sales_opportunities,
+        { created_at: Date.now(), description: args.description },
+      ],
     });
+  },
+});
 
-    await ctx.db.patch(args.id, { platforms });
+export const appendSocialIntelligence = mutation({
+  args: {
+    id: v.id("clients"),
+    platform: v.union(v.literal("linkedin"), v.literal("instagram"), v.literal("legacy")),
+    content: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const client = await ctx.db.get(args.id);
+    if (!client) throw new Error("Client not found");
+    await ctx.db.patch(args.id, {
+      social_intelligence: [
+        ...client.social_intelligence,
+        { date_fetched: Date.now(), platform: args.platform, content: args.content },
+      ],
+    });
   },
 });

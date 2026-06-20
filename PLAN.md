@@ -1,299 +1,230 @@
 # ImagineHack — Implementation Plan
 
-Each component is listed in build order. Complete one before starting the next unless noted as parallelisable.
+_Last updated: 2026-06-20. Reflects merged state of menna/baileys + convex-db branches._
+
+---
+
+## Status Legend
+- ✅ Done
+- ⚠️ Partial / needs fix
+- ⬜ Not started
 
 ---
 
 ## Component 1 — Convex DB
 
-**What**: Schema for all three tables. Everything else depends on this.
-
-**Tasks**
-- [ ] Init Convex project (`npx convex dev`)
-- [ ] Define `clients` table with validators
-- [ ] Define `messages` table with validators
-- [ ] Define `projects` table with validators
-- [ ] Write query: `getClientByNumber(number)` — used by Baileys filter check
-- [ ] Write query: `getClientById(id)`
-- [ ] Write query: `listClients()`
-- [ ] Write mutation: `insertClient(data)`
-- [ ] Write mutation: `insertMessage(data)`
-- [ ] Write mutation: `upsertSocialIntelligence(clientId, platform, data)`
-- [ ] Write mutation: `insertProject(data)`
-- [ ] Write mutation: `updateProjectClientStatus(projectId, clientId, status)`
-
 **Stack**: Convex (TypeScript schema + functions)
 
-**Env needed**: `CONVEX_URL`, `CONVEX_DEPLOY_KEY`
+| Task | Status |
+|---|---|
+| Schema defined (`clients`, `chat_history`, `signals`, `outreach_batches`, `projects`) | ✅ |
+| `clients.ts` — getAll, getById, create, update, updatePlatformHandle, updateScanSchedule | ✅ |
+| `chatHistory.ts` — getByClient, appendMessage | ✅ |
+| `outreachBatches.ts` — create, getCurrent, getByWeek, markOutreached | ✅ |
+| `signals.ts` — create, listByClient | ✅ |
+| `projects.ts` — list, get, create, updateClientStatus | ✅ |
+| `seed.ts` — sample clients seeded | ✅ |
+| `clients:getByNumber` query — **missing**, backend calls it | ⚠️ |
+| `clients:listPendingBatch` + `clients:setBatchDone` — **missing** | ⚠️ |
+| `messages:insert` + `messages:listByClient` — **missing** (schema uses `chat_history`, not `messages`) | ⚠️ |
+| `socialIntelligence:upsert` + `socialIntelligence:get` — **missing** (no `social_intelligence` table, signals table covers this now) | ⚠️ |
+
+**Immediate fix needed**: Add missing query/mutation functions OR update `services/convex.py` to call the correct function names that match what's in the Convex repo.
 
 ---
 
-## Component 2 — Python Backend
-
-**What**: FastAPI app that owns all business logic — LLM calls, Exa/Apify calls, cron jobs, advisor intent handling. Everything routes through here.
-
-**Structure**
-```
-backend/
-  main.py              # FastAPI app entry
-  routers/
-    clients.py         # /clients endpoints
-    messages.py        # /internal/messages
-    projects.py        # /projects endpoints
-    advisor.py         # /advisor/message — OpenClaw calls this
-    workers.py         # /workers/* — internal cron endpoints
-  services/
-    convex.py          # Convex HTTP API wrapper
-    exa.py             # Exa API calls
-    apify.py           # Apify API calls
-    llm.py             # LLM calls (OpenAI / ILMU)
-  cron.py              # APScheduler setup
-  config.py            # env vars
-```
-
-**Tasks**
-- [ ] Set up FastAPI project + dependencies (`fastapi`, `uvicorn`, `httpx`, `apscheduler`)
-- [ ] `config.py` — load all env vars
-- [ ] `services/convex.py` — HTTP wrapper for Convex queries/mutations
-- [ ] `routers/clients.py` — CRUD endpoints + `GET /clients/exists?number=`
-- [ ] `routers/messages.py` — `POST /internal/messages` (Baileys writes here)
-- [ ] `routers/projects.py` — list, get, create, update client status
-- [ ] `routers/advisor.py` — `POST /advisor/message` intent handler (stub first)
-- [ ] `routers/workers.py` — all `/workers/*` endpoints (stubs first)
-- [ ] `cron.py` — APScheduler wired to worker functions, daily 3AM + Monday 6AM
+## Component 2 — Python Backend (platform-api/backend)
 
 **Stack**: Python, FastAPI, APScheduler, httpx
 
-**Env needed**: `CONVEX_URL`, `CONVEX_DEPLOY_KEY`, `EXA_API_KEY`, `APIFY_API_TOKEN`, `OPENAI_API_KEY`, `LLM_MODEL`
+| Task | Status |
+|---|---|
+| FastAPI app skeleton + lifespan | ✅ |
+| `config.py` — env vars | ✅ |
+| `services/convex.py` — HTTP wrapper | ✅ |
+| `routers/clients.py` — CRUD + `GET /clients/exists?number=` | ✅ |
+| `routers/messages.py` — `POST /internal/messages` | ✅ |
+| `routers/projects.py` | ✅ |
+| `routers/advisor.py` — intent router | ✅ |
+| `routers/workers.py` — `/workers/*` stubs | ✅ |
+| `cron.py` — APScheduler wired (3AM daily, 6AM Monday) | ✅ |
+| `services/exa.py` — Exa API wrapper | ✅ |
+| `services/handle_resolution.py` — resolve + confidence score | ✅ |
+| `services/advisor_llm.py` — per-intent handlers | ✅ |
+| `services/batch_generator.py` — weekly batch + notify | ✅ |
+| `services/apify.py` — Apify wrapper | ✅ (verify impl) |
+| `services/linkedin_scanner.py` | ✅ (verify impl) |
+| `services/instagram_scanner.py` | ✅ (verify impl) |
+| `services/legacy_scanner.py` | ✅ (verify impl) |
+| `services/llm.py` — classify_intent + helpers | ✅ (verify impl) |
+| Fix convex.py function name mismatches (see Component 1 ⚠️) | ⬜ |
 
 ---
 
-## Component 3 — Baileys Service
+## Component 3 — Baileys Service (platform-api/baileys)
 
-**Location**: `platform-api/baileys/`
-
-**What**: Persistent Node.js process. Connects to the advisor's WhatsApp number via QR scan. Streams all incoming messages to backend — but only for tracked client numbers.
-
-**Status**: OpenClaw is already connected to WhatsApp in the container. Baileys service will be a **separate** lightweight Node.js process alongside it, connected to the same or a different number depending on setup.
-
-> Note: If the advisor's number is already linked to OpenClaw, Baileys cannot link the same number simultaneously (WhatsApp only allows one Web session). Two options:
-> - Use a dedicated second number for Baileys (recommended for prod)
-> - Or rely on OpenClaw's `messageReceived` plugin hook to forward messages to backend instead of running Baileys separately (simpler for hackathon)
-
-**Structure**
-```
-platform-api/
-  baileys/
-    src/
-      index.js        # entry — session init + event handlers
-      filter.js       # client lookup + discard logic
-      poster.js       # POST to Python backend
-    auth/             # WA session credentials (gitignored)
-    package.json
-    .env
-```
-
-**Tasks**
-- [ ] `npm init` inside `platform-api/baileys/`
-- [ ] Install `@whiskeysockets/baileys`, `express`, `axios`, `dotenv`
-- [ ] `src/index.js` — session init + `useMultiFileAuthState('./auth')`
-- [ ] `src/filter.js` — `GET /clients/exists?number=` check against backend
-- [ ] `src/poster.js` — `POST /internal/messages` to backend
-- [ ] Implement `messages.upsert` handler:
-  - Extract phone number from JID
-  - Call filter → if client: call poster
-  - If not client: discard silently
-- [ ] Implement auto-reconnect on disconnect
-- [ ] Expose `GET /health` for liveness check
-- [ ] Add `auth/` to `.gitignore`
-- [ ] Add `baileys` service to root `docker-compose.yml`
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
 **Stack**: Node.js, `@whiskeysockets/baileys`, Express
 
-**Env needed**: `BACKEND_URL=http://backend:8000`
+| Task | Status |
+|---|---|
+| `src/index.js` — session init + event handlers | ✅ |
+| `src/filter.js` — `GET /clients/exists?number=` lookup | ✅ |
+| `src/poster.js` — `POST /internal/messages` to backend | ✅ |
+| `messages.upsert` handler — filter → post logic | ✅ |
+| Auto-reconnect on disconnect | ✅ |
+| `GET /health` liveness endpoint | ⚠️ (verify) |
+| `auth/` added to `.gitignore` | ⚠️ (verify) |
+| **Seed with a real phone number** for demo testing | ⬜ |
+| Add `baileys` service to `docker-compose.yml` | ⬜ |
 
 ---
 
 ## Component 4 — Handle Resolution (Exa)
 
-**What**: When a client is added, find their Instagram handle and LinkedIn URL using Exa web search. Confidence-score the results. Auto-store if high confidence, flag for advisor if medium, prompt manual entry if low.
-
-**Tasks**
-- [ ] `services/exa.py` — Exa API wrapper (`search()`, `searchPeople()`)
-- [ ] `services/handle_resolution.py`:
-  - Run 3 Exa queries in parallel per client
-  - LLM scores each candidate (company match, city match, name match)
-  - Returns `{ handle, confidence, evidence[] }`
-- [ ] Wire to `POST /clients` — triggers resolution on new client creation
-- [ ] `GET /clients/:id/resolution` — returns current resolution status + candidates
-- [ ] `POST /clients/:id/resolution/confirm` — advisor confirms handle
-- [ ] `POST /clients/:id/resolution/manual` — advisor sets handle directly
-- [ ] `POST /clients/:id/resolution/skip` — skip social monitoring for this client
-- [ ] Update `clients.social_intelligence[]` in Convex after resolution
-
-**LLM prompt**: given candidate profile text + client known info → score confidence 0–10 + explain evidence
+| Task | Status |
+|---|---|
+| `services/exa.py` wrapper | ✅ |
+| `services/handle_resolution.py` — parallel queries + LLM scoring | ✅ |
+| Wired to `POST /clients` via BackgroundTasks | ✅ |
+| `GET /clients/:id/resolution` — resolution status endpoint | ⬜ |
+| `POST /clients/:id/resolution/confirm` | ⬜ |
+| `POST /clients/:id/resolution/manual` | ⬜ |
+| `POST /clients/:id/resolution/skip` | ⬜ |
 
 ---
 
-## Component 5 — LinkedIn Scanner (Exa)
+## Component 5–7 — Social Scanners (Exa / Apify)
 
-**What**: Daily cron checks clients whose LinkedIn `next_check < now()`. Fetches their public LinkedIn page via Exa. LLM classifies life event signals.
-
-**Tasks**
-- [ ] `services/linkedin_scanner.py`:
-  - `exa.search(query=f'site:{linkedin_url}', text=True, highlights=True)`
-  - Pass page text to LLM signal detection prompt
-  - Returns `{ signals[], no_signal }`
-- [ ] Wire to `/workers/scan-linkedin`
-- [ ] APScheduler calls `/workers/scan-linkedin` daily at 03:00 AM
-- [ ] On signal found: update `social_intelligence[linkedin].data_found[]` + set `pending_batch=true`
-- [ ] Update `last_checked` + `next_check = now + 24h` regardless of signal
+| Task | Status |
+|---|---|
+| LinkedIn scanner — Exa fetch + LLM signal detection | ✅ (verify) |
+| Instagram scanner — Apify scrape + LLM classify captions | ✅ (verify) |
+| Legacy.com scanner — Exa obituary search + LLM match | ✅ (verify) |
+| Wired to `/workers/scan-*` endpoints | ✅ (verify) |
+| APScheduler calling all three at 3AM | ✅ |
 
 ---
 
-## Component 6 — Instagram Scanner (Apify)
+## Component 8 — Weekly Batch Generator
 
-**What**: Daily cron checks clients with confirmed Instagram handle. Fetches latest 10 posts via Apify. LLM classifies signals from captions. Vision LLM for captionless image posts.
-
-**Tasks**
-- [ ] `services/apify.py` — Apify client wrapper (`run_actor()`, `get_dataset()`)
-- [ ] `services/instagram_scanner.py`:
-  - `apify.run_actor("apify/instagram-profile-scraper", { usernames: [handle], resultsLimit: 10 })`
-  - For each post: LLM classifies caption text
-  - For posts with no caption: pass image URL to vision LLM (GPT-4o vision / Gemini)
-  - Returns `{ signals[], no_signal }`
-- [ ] Wire to `/workers/scan-instagram`
-- [ ] APScheduler calls daily at 03:30 AM
-- [ ] Update `social_intelligence[instagram]` in Convex
-
----
-
-## Component 7 — Legacy.com Scanner (Exa)
-
-**What**: Daily cron searches Legacy.com obituaries for each client's known family members. Flags `family_death` signal if a match is found.
-
-**Tasks**
-- [ ] `services/legacy_scanner.py`:
-  - For each client: build query `'"{family_member}" obituary "{city}"'`
-  - `exa.search(query, includeDomains=["legacy.com"], text=True)`
-  - LLM checks if any result matches a known family member name
-  - Returns `{ signals[], no_signal }`
-- [ ] Wire to `/workers/scan-legacy`
-- [ ] APScheduler calls daily at 04:00 AM
-- [ ] Update `social_intelligence[legacy]` in Convex
-
----
-
-## Component 8 — Weekly Project Generator
-
-**What**: Every Monday 6AM, collect all clients with `pending_batch=true`, score urgency, LLM generates project name + sales angle, writes a `projects` record, notifies advisor via OpenClaw.
-
-**Tasks**
-- [ ] `services/batch_generator.py`:
-  - Query Convex: clients with any `pending_batch=true`
-  - Collect all `data_found[]` signals per client
-  - Score urgency per signal type
-  - LLM generates `{ name, sales_angle, client_notes[] }`
-  - Write `projects` record to Convex
-  - Set `pending_batch=false` for all included clients
-- [ ] Wire to `/workers/generate-batch`
-- [ ] APScheduler calls Monday 06:00 AM
-- [ ] After writing project: `POST /workers/notify-advisor` → OpenClaw sends WA message to advisor
+| Task | Status |
+|---|---|
+| `services/batch_generator.py` — collect signals, LLM angle, write project | ✅ |
+| Wired to `/workers/generate-batch` | ✅ |
+| APScheduler Monday 6AM | ✅ |
+| Notify advisor via OPENCLAW_WEBHOOK_URL after batch | ✅ |
 
 ---
 
 ## Component 9 — Advisor Intent Handler
 
-**What**: Single endpoint `/advisor/message` that OpenClaw calls with every advisor message. Backend routes intent, queries DB, calls LLM, returns reply string.
-
-**Intents to handle**
-
-| Advisor says | Backend action |
+| Task | Status |
 |---|---|
-| "Remind me about Raina tomorrow" | Query Raina's messages from Convex → LLM synthesizes context → schedule reminder → reply with summary |
-| "What's up with Ahmad?" | Query Ahmad's messages + social signals → LLM summarizes → reply |
-| "Who should I call this week?" | Query latest project → format client list → reply |
-| "Ahmad's Instagram is @ahmadfariz92" | Parse handle → write to `social_intelligence[instagram].handle` |
-| Anything else | LLM free-form reply using client context |
-
-**Tasks**
-- [ ] `routers/advisor.py` — `POST /advisor/message`
-- [ ] `services/intent_router.py` — LLM classifies intent from message text
-- [ ] `services/advisor_llm.py` — per-intent handlers that query DB + generate reply
-- [ ] Return `{ reply: string }` — OpenClaw sends this verbatim back to advisor
+| `routers/advisor.py` — `POST /advisor/message` | ✅ |
+| `services/llm.py` — `classify_intent()` | ✅ (verify) |
+| `services/advisor_llm.py` — client_summary, set_handle, weekly_batch, freeform | ✅ |
 
 ---
 
-## Component 10 — OpenClaw Wiring
+## Component 10 — OpenClaw → Platform API Connection
 
-**What**: OpenClaw is already running in the container, already connected to WhatsApp. Just needs one skill that forwards advisor messages to the backend and sends the reply back.
+**What**: OpenClaw (running in local container) needs to call platform-api to:
+1. Fetch a client's `chat_history` from Convex (via platform-api endpoint)
+2. Get an AI-generated suggested angle for approaching that client
+3. Present the suggestion back to the advisor in WhatsApp
 
-**Status**: ✅ Container running. ✅ WhatsApp connected. Needs: one skill added.
+**Status**: OpenClaw container running ✅ — skill **not written yet** ⬜
 
-**Tasks**
-- [ ] Write skill `imaginehack` in `/root/.openclaw/plugin-skills/imaginehack/`:
-  - On any advisor message → extract text + any client name mentioned
-  - `POST http://backend:8000/advisor/message { advisor_message, client_name }`
-  - Receive `{ reply }` → send to advisor
-- [ ] Add backend URL to OpenClaw env / skill config
-- [ ] Test end-to-end: text OpenClaw → backend processes → reply comes back
-
-**Skill file location**: `/root/.openclaw/plugin-skills/imaginehack/SKILL.md`
+| Task | Status |
+|---|---|
+| Add `GET /clients/:id/chat-history` endpoint to platform-api | ⬜ |
+| Add `POST /advisor/suggest-angle` endpoint — takes client_id + chat history → LLM returns approach angle | ⬜ |
+| Write OpenClaw skill `imaginehack` in `/root/.openclaw/plugin-skills/imaginehack/` | ⬜ |
+| Skill: on advisor message → extract client name → fetch chat history → POST suggest-angle → reply | ⬜ |
+| Add `PLATFORM_API_URL` to OpenClaw env | ⬜ |
+| Test end-to-end: text OpenClaw → backend processes → angle reply comes back | ⬜ |
 
 ---
 
-## Component 11 — Docker Compose
+## Component 11 — Exa/Apify Fetch Strategy for Clients (outreach_batches)
 
-**What**: Wire all services together so everything starts with `docker-compose up`.
+**What**: Define *what* we're fetching from Exa and Apify per client, and *when* — so signals land in `outreach_batches` and drive weekly outreach.
 
-**Services**
-```yaml
-services:
-  openclaw:       # already exists — OpenClaw + WhatsApp
-  backend:        # Python FastAPI
-  baileys:        # Node.js Baileys service (if not using OpenClaw hook)
-```
+| Task | Status |
+|---|---|
+| Define trigger events: new client added, scheduled scan (3AM), manual trigger | ⬜ |
+| **Exa fetches per client**: LinkedIn page (job changes, promotions), Legacy.com (family obituaries), general news (`"{name}" "{company}"`) | ⬜ |
+| **Apify fetches per client**: Instagram profile (latest 10 posts, captions, image vision for captionless) | ⬜ |
+| Define signal taxonomy: `job_change`, `promotion`, `new_baby`, `family_death`, `travel`, `purchase`, `anniversary` | ⬜ |
+| Ensure scanner output writes to `signals` table with correct `client_id`, `platform`, `signal_type`, `batched=false` | ⬜ |
+| Batch job reads unbatched signals → generates `outreach_batches` record with `batch_sales_angle` per cluster | ⬜ |
+| Verify `outreach_batches` schema covers the enriched output (currently: `week_of`, `batch_sales_angle`, `clients[{client_id, notes, outreached}]`) | ⬜ |
 
-**Tasks**
-- [ ] Add `backend` service to `docker-compose.yml`
-- [ ] Add `baileys` service (or skip if using OpenClaw hook)
-- [ ] Add shared `.env` file mounting
-- [ ] Ensure `backend` and `baileys` can reach each other by service name
-- [ ] Add health checks
+---
+
+## Component 12 — OpenClaw × outreach_batches: Enriched Approach Angles
+
+**What**: When the weekly batch runs (or on-demand), OpenClaw gets the latest `outreach_batches` record, pairs each client's signals with their `chat_history`, and generates a personalized approach angle per client — enriching the batch.
+
+| Task | Status |
+|---|---|
+| Add `GET /outreach-batches/current` endpoint to platform-api | ⬜ |
+| Add `POST /outreach-batches/:id/enrich` — for each client in batch: fetch chat_history + signals → LLM generates personalized angle → patch `clients[].notes` | ⬜ |
+| Wire enrich call into `batch_generator.py` (run after batch is created) | ⬜ |
+| Or: OpenClaw skill calls `enrich` on-demand when advisor asks "who should I reach out to this week?" | ⬜ |
+| Add `GET /outreach-batches/current` to OpenClaw skill so advisor can query the current batch | ⬜ |
+| Test: signal detected → batch generated → enriched notes include chat-history-aware angle | ⬜ |
+
+---
+
+## Component 13 — Docker Compose
+
+| Task | Status |
+|---|---|
+| `openclaw` service | ✅ |
+| Add `backend` (Python FastAPI) service | ⬜ |
+| Add `baileys` (Node.js) service | ⬜ |
+| Shared `.env` mount | ⬜ |
+| Health checks for backend + baileys | ⬜ |
+| Ensure services reach each other by name (`backend:8000`, `baileys:3000`) | ⬜ |
+
+---
+
+## Immediate Next Steps (in order)
+
+### 1. Seed — real phone number for demo
+Update `convex/seed.ts`: change one client's `number` to a real phone number so incoming WhatsApp messages hit the filter and post to the DB. Use this to demo the full loop live.
+
+### 2. Fix Convex function name mismatches
+`services/convex.py` calls `clients:getByNumber`, `messages:insert`, `messages:listByClient`, `clients:listPendingBatch`, `clients:setBatchDone`, `socialIntelligence:*` — none of which exist in the Convex repo. Either add them to Convex or fix the Python calls to use existing functions.
+
+### 3. OpenClaw → platform-api (Component 10)
+Add two endpoints + write the skill so OpenClaw can fetch chat history and get approach suggestions.
+
+### 4. Define + verify Exa/Apify fetch strategy (Component 11)
+Confirm what the scanners actually fetch and that it flows into `signals` → `outreach_batches` correctly.
+
+### 5. OpenClaw × outreach_batches enrichment (Component 12)
+Add enrich endpoint and wire it so the batch has personalized angles per client based on chat history.
+
+### 6. Docker Compose (Component 13)
+Add backend + baileys services so everything starts with one command.
 
 ---
 
 ## Build Order Summary
 
 ```
-1.  Convex schema                     ← everything depends on this
-2.  Python backend skeleton           ← stub all endpoints
-3.  Baileys service / OC hook         ← start capturing messages
-4.  Handle resolution (Exa)          ← unlocks social scanning
-5.  LinkedIn scanner                  ┐
-6.  Instagram scanner                 ├ can be built in parallel
-7.  Legacy.com scanner                ┘
-8.  Weekly project generator          ← depends on scanners
-9.  Advisor intent handler            ← depends on messages in DB
-10. OpenClaw skill wiring             ← depends on backend being up
-11. Docker compose                    ← wire it all together
+1.  Convex schema + functions          ✅ (fix mismatches ⚠️)
+2.  Python backend skeleton            ✅
+3.  Baileys service                    ✅ (docker-compose ⬜)
+4.  Handle resolution (Exa)           ✅
+5.  Social scanners                    ✅ (verify)
+6.  Weekly batch generator             ✅
+7.  Advisor intent handler             ✅
+8.  Seed with real phone number        ⬜  ← next
+9.  OpenClaw → platform-api           ⬜  ← next
+10. Exa/Apify fetch strategy          ⬜  ← next
+11. outreach_batches enrichment       ⬜  ← next
+12. Docker Compose complete           ⬜  ← next
 ```
-
----
-
-## Current Status
-
-| Component | Status |
-|-----------|--------|
-| OpenClaw container | ✅ Running |
-| WhatsApp connected | ✅ Connected |
-| Convex schema | ⬜ Not started |
-| Python backend | ⬜ Not started |
-| Baileys service | ⬜ Not started |
-| Handle resolution | ⬜ Not started |
-| LinkedIn scanner | ⬜ Not started |
-| Instagram scanner | ⬜ Not started |
-| Legacy scanner | ⬜ Not started |
-| Weekly batch | ⬜ Not started |
-| Advisor intent | ⬜ Not started |
-| OpenClaw skill | ⬜ Not started |

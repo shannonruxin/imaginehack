@@ -1,125 +1,123 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+const relationship = v.union(
+  v.literal("spouse"),
+  v.literal("child"),
+  v.literal("parent"),
+  v.literal("sibling"),
+  v.literal("grandparent"),
+  v.literal("grandchild"),
+  v.literal("in_law"),
+  v.literal("other"),
+);
+
 export default defineSchema({
   clients: defineTable({
-    // Core info
-    name: v.string(),
+    // Demographic
+    first_name: v.string(),
+    last_name: v.string(),
     age: v.number(),
-    number: v.string(),
     nationality: v.string(),
-    email: v.string(),
-    occupation: v.string(),
     income_range: v.string(),
-    website: v.optional(v.string()),
-    known_family_members: v.array(v.string()),
 
-    // Personal profile
+    // Contact
+    number: v.string(),
+    email: v.string(),
+
+    // Socials
+    socials: v.array(v.object({
+      type: v.union(
+        v.literal("website"),
+        v.literal("instagram"),
+        v.literal("linkedin"),
+      ),
+      value: v.string(),
+    })),
+
+    // Family
     marital_status: v.union(
       v.literal("single"),
       v.literal("married"),
       v.literal("divorced"),
-      v.literal("engaged")
+      v.literal("engaged"),
     ),
-    no_of_dependents: v.number(),
+    dependents: v.array(v.object({
+      relationship,
+      first_name: v.string(),
+      last_name: v.string(),
+      age: v.optional(v.number()),
+    })),
 
-    // Insurance
+    // Existing insurance
     existing_policies: v.array(v.object({
       policy_id: v.string(),
       name: v.string(),
-      type: v.string(),
+      type: v.union(
+        v.literal("term_life"),
+        v.literal("whole_life"),
+        v.literal("medical"),
+        v.literal("critical_illness"),
+        v.literal("takaful"),
+        v.literal("investment_linked"),
+        v.literal("other"),
+      ),
       start_date: v.string(),
       end_date: v.optional(v.string()),
-      beneficiaries: v.array(v.string()),
+      beneficiaries: v.array(v.object({
+        relationship,
+        first_name: v.string(),
+        last_name: v.string(),
+      })),
     })),
 
-    // Goals & opportunities
-    financial_goals: v.array(v.string()),
-    sales_opportunities: v.array(v.string()),
+    // Sales opportunities
+    sales_opportunities: v.array(v.object({
+      created_at: v.number(),
+      description: v.string(),
+    })),
 
-    // Social handles + scan schedule (bounded: max 3 platforms)
-    platforms: v.array(v.object({
+    // Social intelligence — append-only fetch log
+    social_intelligence: v.array(v.object({
+      date_fetched: v.number(),
       platform: v.union(
         v.literal("linkedin"),
         v.literal("instagram"),
-        v.literal("legacy")
+        v.literal("legacy"),
       ),
-      handle: v.optional(v.string()),
-      handle_confidence: v.optional(v.union(
-        v.literal("confirmed"),
-        v.literal("auto"),
-        v.literal("pending")
-      )),
-      last_checked: v.optional(v.number()),
-      next_check: v.optional(v.number()),
+      content: v.string(),
     })),
 
     created_at: v.number(),
   })
-    .index("by_created_at", ["created_at"])
-    .index("by_name", ["name"]),
-
-  signals: defineTable({
-    client_id: v.id("clients"),
-    platform: v.union(
-      v.literal("linkedin"),
-      v.literal("instagram"),
-      v.literal("legacy")
-    ),
-    signal_type: v.string(),
-    summary: v.string(),
-    evidence: v.optional(v.string()),
-    confidence: v.union(
-      v.literal("high"),
-      v.literal("medium"),
-      v.literal("low")
-    ),
-    detected_at: v.number(),
-    batched: v.boolean(),
-    actioned: v.boolean(),
-  })
-    .index("by_client_id", ["client_id"])
-    .index("by_client_id_and_batched", ["client_id", "batched"])
-    .index("by_batched", ["batched"]),
-
-  outreach_batches: defineTable({
-    week_of: v.string(),
-    batch_sales_angle: v.string(),
-    created_at: v.number(),
-    clients: v.array(v.object({
-      client_id: v.id("clients"),
-      notes: v.string(),
-      outreached: v.boolean(),
-    })),
-  })
-    .index("by_week_of", ["week_of"]),
+    .index("by_number", ["number"])
+    .index("by_created_at", ["created_at"]),
 
   projects: defineTable({
-    name: v.string(),
-    sales_angle: v.string(),
+    batch_sales_angle: v.string(),
     created_at: v.number(),
     clients: v.array(v.object({
       client_id: v.id("clients"),
       notes: v.optional(v.string()),
       status: v.union(
-        v.literal("pending"),
-        v.literal("contacted"),
-        v.literal("responded"),
-        v.literal("closed_won"),
-        v.literal("closed_lost")
+        v.literal("to_follow_up"),
+        v.literal("meeting_rescheduled"),
+        v.literal("stale"),
+        v.literal("help_me_out"),
       ),
-      outreached: v.boolean(),
+      next_follow_up_scheduled: v.optional(v.string()),
+      next_meeting_scheduled: v.optional(v.string()),
     })),
-  }),
+  })
+    .index("by_created_at", ["created_at"]),
 
   // OpenClaw only — Python backend never reads/writes here.
-  // One record per client; messages are appended into the array.
   chat_history: defineTable({
     client_id: v.id("clients"),
     messages: v.array(v.object({
       sender: v.union(
         v.literal("client"),
-        v.literal("advisor")
+        v.literal("advisor"),
       ),
       message: v.string(),
       timestamp: v.number(),

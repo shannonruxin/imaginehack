@@ -1,30 +1,12 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
-export const create = mutation({
-  args: {
-    name: v.string(),
-    sales_angle: v.string(),
-    clients: v.array(v.object({
-      client_id: v.id("clients"),
-      notes: v.optional(v.string()),
-      status: v.union(
-        v.literal("pending"),
-        v.literal("contacted"),
-        v.literal("responded"),
-        v.literal("closed_won"),
-        v.literal("closed_lost")
-      ),
-      outreached: v.boolean(),
-    })),
-  },
-  handler: async (ctx, args) => {
-    return await ctx.db.insert("projects", {
-      ...args,
-      created_at: Date.now(),
-    });
-  },
-});
+const clientStatus = v.union(
+  v.literal("to_follow_up"),
+  v.literal("meeting_rescheduled"),
+  v.literal("stale"),
+  v.literal("help_me_out"),
+);
 
 export const getAll = query({
   args: {},
@@ -40,18 +22,40 @@ export const getById = query({
   },
 });
 
+export const getCurrent = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("projects").order("desc").first();
+  },
+});
+
+export const create = mutation({
+  args: {
+    batch_sales_angle: v.string(),
+    clients: v.array(v.object({
+      client_id: v.id("clients"),
+      notes: v.optional(v.string()),
+      status: clientStatus,
+      next_follow_up_scheduled: v.optional(v.string()),
+      next_meeting_scheduled: v.optional(v.string()),
+    })),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("projects", {
+      ...args,
+      created_at: Date.now(),
+    });
+  },
+});
+
 export const updateClientStatus = mutation({
   args: {
     id: v.id("projects"),
     client_id: v.id("clients"),
-    status: v.union(
-      v.literal("pending"),
-      v.literal("contacted"),
-      v.literal("responded"),
-      v.literal("closed_won"),
-      v.literal("closed_lost")
-    ),
-    outreached: v.optional(v.boolean()),
+    status: clientStatus,
+    notes: v.optional(v.string()),
+    next_follow_up_scheduled: v.optional(v.string()),
+    next_meeting_scheduled: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const project = await ctx.db.get(args.id);
@@ -62,7 +66,9 @@ export const updateClientStatus = mutation({
       return {
         ...c,
         status: args.status,
-        ...(args.outreached !== undefined && { outreached: args.outreached }),
+        ...(args.notes !== undefined && { notes: args.notes }),
+        ...(args.next_follow_up_scheduled !== undefined && { next_follow_up_scheduled: args.next_follow_up_scheduled }),
+        ...(args.next_meeting_scheduled !== undefined && { next_meeting_scheduled: args.next_meeting_scheduled }),
       };
     });
     await ctx.db.patch(args.id, { clients });
