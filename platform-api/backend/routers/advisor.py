@@ -50,3 +50,13 @@ def suggest_angle(body: SuggestAngle):
     history = convex.get_chat_history(body.client_id) or {}
     messages = history.get("messages", [])
     return llm.suggest_approach_angle(client, messages, client.get("recent_signals", []))
+
+
+@router.post("/suggest-angle-enriched")
+def suggest_angle_enriched(body: SuggestAngle):
+    client = convex.get_client_by_id(body.client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    history = convex.get_chat_history(body.client_id) or {}
+    messages = history.get("messages", [])
+    return llm.suggest_approach_angle_enriched(client, messages, client.get("recent_signals", []))

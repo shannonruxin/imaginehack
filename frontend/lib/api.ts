@@ -45,7 +45,7 @@ export const queryClients = (query: string) =>
   });
 
 export const suggestAngle = (clientId: string) =>
-  req<{ angle: string; reasoning: string }>("/advisor/suggest-angle", {
+  req<{ angle_direct: string; angle_subtle: string; reasoning: string; web_enriched?: boolean; search_query?: string }>("/advisor/suggest-angle-enriched", {
     method: "POST",
     body: JSON.stringify({ client_id: clientId }),
   });

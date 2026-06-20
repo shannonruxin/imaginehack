@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     EXA_API_KEY: str
     APIFY_API_TOKEN: str
     GEMINI_API_KEY: str
-    LLM_MODEL: str = "gemini-2.5-flash"
+    LLM_MODEL: str = "gemini-2.0-flash"
     CLASSIFIER_MODEL: str = "gemini-2.0-flash-lite"
     CONVEX_URL: str
     CONVEX_DEPLOY_KEY: str = ""

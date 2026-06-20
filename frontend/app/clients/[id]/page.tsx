@@ -114,7 +114,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
   const [tab, setTab] = useState<Tab>("overview");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [angle, setAngle] = useState<{ angle: string; reasoning: string } | null>(null);
+  const [angle, setAngle] = useState<{ angle_direct: string; angle_subtle: string; reasoning: string; web_enriched?: boolean; search_query?: string } | null>(null);
   const [angleLoading, setAngleLoading] = useState(false);
   const [angleError, setAngleError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -313,20 +313,6 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             </div>
           )}
 
-          {/* Sales opportunities */}
-          {client.sales_opportunities.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Sales opportunities</p>
-              <div className="space-y-1">
-                {client.sales_opportunities.map((o, i) => (
-                  <div key={i} className="text-sm text-muted-foreground flex gap-2">
-                    <span className="text-xs mt-0.5">{new Date(o.created_at).toLocaleDateString()}</span>
-                    <span>{o.description}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Recent signals */}
           <div>
@@ -370,11 +356,22 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             {angleError && <p className="text-sm text-red-500 mb-3">{angleError}</p>}
             {angle && (
               <div className="space-y-3">
+                {angle.web_enriched && (
+                  <p className="text-xs text-emerald-600 font-medium">
+                    ✦ Web-enriched{angle.search_query ? ` · searched "${angle.search_query}"` : ""}
+                  </p>
+                )}
                 <div className="rounded-lg border p-4">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Angle</p>
-                  <p className="text-sm">{angle.angle}</p>
+                  <p className="text-xs font-medium uppercase tracking-wide mb-2">Straightforward</p>
+                  <p className="text-xs text-muted-foreground mb-2">Reference something you saw — works when the relationship is close.</p>
+                  <p className="text-sm">{angle.angle_direct}</p>
                 </div>
                 <div className="rounded-lg border p-4">
+                  <p className="text-xs font-medium uppercase tracking-wide mb-2">Subtle</p>
+                  <p className="text-xs text-muted-foreground mb-2">Warm catch-up that picks up from where you left off — no agenda, topic emerges naturally later.</p>
+                  <p className="text-sm">{angle.angle_subtle}</p>
+                </div>
+                <div className="rounded-lg border p-4 bg-muted/40">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Reasoning</p>
                   <p className="text-sm text-muted-foreground">{angle.reasoning}</p>
                 </div>

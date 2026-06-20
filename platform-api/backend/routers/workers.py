@@ -45,16 +45,28 @@ def worker_resolve_handles(bg: BackgroundTasks):
     return {"queued": len(clients)}
 
 
+def _resolve_then_scan(client_id: str) -> None:
+    """Resolve missing handles first, then run all three scanners."""
+    client = convex.get_client_by_id(client_id)
+    if not client:
+        return
+    # Fill in any missing LinkedIn / Instagram handles via Exa search
+    resolve_handles(client)
+    # Re-fetch so scanners see the newly stored handles
+    client = convex.get_client_by_id(client_id) or client
+    scan_linkedin(client)
+    scan_instagram(client)
+    scan_legacy(client)
+
+
 @router.post("/scan-client/{client_id}")
 def worker_scan_client(client_id: str, bg: BackgroundTasks):
     client = convex.get_client_by_id(client_id)
     if not client:
         from fastapi import HTTPException
         raise HTTPException(404, "Client not found")
-    bg.add_task(scan_linkedin, client)
-    bg.add_task(scan_instagram, client)
-    bg.add_task(scan_legacy, client)
-    return {"queued": 3, "client_id": client_id}
+    bg.add_task(_resolve_then_scan, client_id)
+    return {"queued": 1, "client_id": client_id}
 
 
 @router.post("/generate-batch")
