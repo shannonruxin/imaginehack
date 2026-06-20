@@ -1,4 +1,5 @@
 # ImagineHack — Sales Initiative: Social Listening
+
 ## Project Spec
 
 ---
@@ -45,12 +46,14 @@ A social listening system for life insurance advisors. Monitors tracked clients'
 ```
 
 **Separation of concerns:**
+
 - **Baileys service** — persistent WA connection, streams client messages to backend, nothing else
 - **Python backend** — all logic: cron, Exa/Apify calls, LLM signal detection, DB writes, advisor intent handling
 - **OpenClaw** — read-only notification + conversation layer. Reads DB flags, notifies advisor, handles advisor chat. Never calls Exa, Apify, or LLM for scanning — only fires when advisor sends a message or a batch is ready
 - **Convex DB** — shared state
 
 **Why Exa and scanning live in the backend, not OpenClaw:**
+
 - OpenClaw model credits only fire on meaningful interactions (advisor message, Monday batch)
 - Scanning runs on a cron regardless of OpenClaw — no model cost for routine checks
 - Hash-based change detection means LLM only runs when content actually changed since last scan
@@ -60,30 +63,34 @@ A social listening system for life insurance advisors. Monitors tracked clients'
 
 ## 3. Data Sources
 
-| Platform | Tool | What we get | Limitation |
-|----------|------|-------------|------------|
-| LinkedIn | Exa `site:linkedin.com` | Public profile, current role, recent posts | Login-gated data inaccessible |
-| Instagram | Apify instagram-profile-scraper | Public posts, captions, profile bio | Requires username, not name |
-| Legacy.com | Exa `includeDomains: legacy.com` | Obituary results by name + city | Needs family member names for best match |
-| WhatsApp chat history | Baileys service | All messages with tracked clients, streamed in real-time | Clients only — filtered at source |
-| Handle resolution | Exa web search | Resolves real name → likely IG username | Confidence-scored, advisor confirms medium confidence |
+
+| Platform              | Tool                             | What we get                                              | Limitation                                            |
+| --------------------- | -------------------------------- | -------------------------------------------------------- | ----------------------------------------------------- |
+| LinkedIn              | Exa `site:linkedin.com`          | Public profile, current role, recent posts               | Login-gated data inaccessible                         |
+| Instagram             | Apify instagram-profile-scraper  | Public posts, captions, profile bio                      | Requires username, not name                           |
+| Legacy.com            | Exa `includeDomains: legacy.com` | Obituary results by name + city                          | Needs family member names for best match              |
+| WhatsApp chat history | Baileys service                  | All messages with tracked clients, streamed in real-time | Clients only — filtered at source                     |
+| Handle resolution     | Exa web search                   | Resolves real name → likely IG username                  | Confidence-scored, advisor confirms medium confidence |
+
 
 ---
 
 ## 4. Life Event Signals
 
-| Signal | Source | Insurance relevance |
-|--------|--------|-------------------|
-| `new_baby` | Instagram, LinkedIn | New dependent → new/increased coverage |
-| `pregnancy` | Instagram | Pre-birth planning window |
-| `marriage` | Instagram, LinkedIn | Joint life plans, beneficiary update |
-| `new_job` | LinkedIn | Income change → policy review |
-| `promotion` | LinkedIn | Income increase → upsell opportunity |
-| `layoff` | LinkedIn | May need income protection |
-| `retirement` | LinkedIn | Major financial restructuring |
-| `new_home` | Instagram, LinkedIn | Mortgage protection insurance |
-| `family_death` | Legacy.com | Mortality salience, beneficiary review |
-| `divorce` | Instagram | Beneficiary changes, loss of spouse coverage |
+
+| Signal         | Source              | Insurance relevance                          |
+| -------------- | ------------------- | -------------------------------------------- |
+| `new_baby`     | Instagram, LinkedIn | New dependent → new/increased coverage       |
+| `pregnancy`    | Instagram           | Pre-birth planning window                    |
+| `marriage`     | Instagram, LinkedIn | Joint life plans, beneficiary update         |
+| `new_job`      | LinkedIn            | Income change → policy review                |
+| `promotion`    | LinkedIn            | Income increase → upsell opportunity         |
+| `layoff`       | LinkedIn            | May need income protection                   |
+| `retirement`   | LinkedIn            | Major financial restructuring                |
+| `new_home`     | Instagram, LinkedIn | Mortgage protection insurance                |
+| `family_death` | Legacy.com          | Mortality salience, beneficiary review       |
+| `divorce`      | Instagram           | Beneficiary changes, loss of spouse coverage |
+
 
 ---
 
@@ -120,11 +127,13 @@ Stored as an entry in `clients.socials[]`. Never re-runs unless advisor requests
 
 Three tables. No field is duplicated across tables.
 
-| Table | Owns |
-| --- | --- |
-| `clients` | Full client profile including social intelligence fetched data |
-| `projects` | Weekly auto-generated outreach todo list — each row is a batch for the week |
-| `chat_history` | WhatsApp message log — reserved for OpenClaw only |
+
+| Table          | Owns                                                                        |
+| -------------- | --------------------------------------------------------------------------- |
+| `clients`      | Full client profile including social intelligence fetched data              |
+| `projects`     | Weekly auto-generated outreach todo list — each row is a batch for the week |
+| `chat_history` | WhatsApp message log — reserved for OpenClaw only                           |
+
 
 ---
 
@@ -184,6 +193,7 @@ created_at                      number
 ```
 
 **Notes on `social_intelligence`**:
+
 - Each cron scan appends a new entry — never overwrites.
 - `content` stores whatever Exa or Apify returned verbatim (serialised JSON string), so the LLM prompt always has the raw source to reason about.
 - The LLM reads the latest entry per platform to detect signals. Older entries are retained for history.
@@ -233,22 +243,25 @@ Index: `by_client_id` on `client_id`
 
 ### What each operation touches
 
-| Operation | Table written |
-| --- | --- |
-| Add new client | `clients` only |
-| Resolve Instagram / LinkedIn handle | `clients.socials[]` — append or update entry |
-| Scan runs (Exa / Apify) | `clients.social_intelligence[]` — append new fetch entry |
-| Generate weekly batch | Insert row into `projects` with flagged clients |
-| Advisor marks client status | `projects.clients[].status` |
-| Advisor sets follow-up date | `projects.clients[].next_follow_up_scheduled` |
-| Advisor logs sales opportunity | `clients.sales_opportunities[]` — append entry |
-| OpenClaw receives/sends WA message | `chat_history.messages[]` — append |
+
+| Operation                           | Table written                                            |
+| ----------------------------------- | -------------------------------------------------------- |
+| Add new client                      | `clients` only                                           |
+| Resolve Instagram / LinkedIn handle | `clients.socials[]` — append or update entry             |
+| Scan runs (Exa / Apify)             | `clients.social_intelligence[]` — append new fetch entry |
+| Generate weekly batch               | Insert row into `projects` with flagged clients          |
+| Advisor marks client status         | `projects.clients[].status`                              |
+| Advisor sets follow-up date         | `projects.clients[].next_follow_up_scheduled`            |
+| Advisor logs sales opportunity      | `clients.sales_opportunities[]` — append entry           |
+| OpenClaw receives/sends WA message  | `chat_history.messages[]` — append                       |
+
 
 ---
 
 ## 7. Python Backend — API Endpoints
 
 ### Clients
+
 ```
 POST   /clients                         Add client (triggers handle resolution)
 GET    /clients                         List all clients
@@ -258,11 +271,13 @@ GET    /clients/exists?number=          Check if number is a tracked client (use
 ```
 
 ### Social Opportunities
+
 ```
 POST   /clients/:id/opportunities       Append a new sales opportunity { description }
 ```
 
 ### Handle Resolution
+
 ```
 GET    /clients/:id/resolution          Get resolution status + candidates
 POST   /clients/:id/resolution/confirm  { type, value } — advisor confirms handle
@@ -271,12 +286,14 @@ POST   /clients/:id/resolution/manual   { type, value } — advisor sets manuall
 ```
 
 ### Messages (written by Baileys, read by backend for LLM synthesis)
+
 ```
 POST   /internal/messages               Baileys writes incoming client messages
 GET    /clients/:id/messages            Get message history for a client
 ```
 
 ### Advisor intent (called by OpenClaw)
+
 ```
 POST   /advisor/message
   body: { advisor_message: string, client_name?: string }
@@ -285,6 +302,7 @@ POST   /advisor/message
 ```
 
 ### Projects
+
 ```
 GET    /projects                                          List projects (newest first)
 POST   /projects                                          Create project manually
@@ -293,6 +311,7 @@ PATCH  /projects/:id/clients/:clientId                    Update client status /
 ```
 
 ### Internal workers (called by APScheduler cron, not exposed publicly)
+
 ```
 /workers/resolve-handles    Resolve social handles for new clients
 /workers/scan-linkedin      Scan LinkedIn for due clients
@@ -309,6 +328,7 @@ PATCH  /projects/:id/clients/:clientId                    Update client status /
 All scanning owned by Python backend (APScheduler). Neither Baileys nor OpenClaw are involved.
 
 ### Schedule
+
 ```
 Daily  03:00 AM  →  scan_due_clients()
 Monday 06:00 AM  →  generate_weekly_project()
@@ -401,6 +421,7 @@ Exa and Apify fetch content daily. LLM only runs if content changed since last s
 OpenClaw has zero business logic. It receives advisor messages, POSTs to backend, sends reply back.
 
 ### Flow
+
 ```
 Advisor texts OpenClaw
   → OpenClaw: POST /advisor/message { advisor_message, client_name? }
@@ -409,12 +430,15 @@ Advisor texts OpenClaw
 ```
 
 ### What advisor can say
-| Message | Backend does |
-|---------|-------------|
-| "Remind me about Raina tomorrow" | Queries Raina's chat_history → LLM extracts follow-ups → schedules reminder |
-| "What's up with Ahmad?" | Queries Ahmad's chat_history + latest social_intelligence → LLM summarizes |
-| "Who should I call this week?" | Returns current week's project clients + notes |
-| "Ahmad's Instagram is @ahmadfariz92" | Appends entry to clients.socials[] |
+
+
+| Message                              | Backend does                                                                |
+| ------------------------------------ | --------------------------------------------------------------------------- |
+| "Remind me about Raina tomorrow"     | Queries Raina's chat_history → LLM extracts follow-ups → schedules reminder |
+| "What's up with Ahmad?"              | Queries Ahmad's chat_history + latest social_intelligence → LLM summarizes  |
+| "Who should I call this week?"       | Returns current week's project clients + notes                              |
+| "Ahmad's Instagram is @ahmadfariz92" | Appends entry to clients.socials[]                                          |
+
 
 OpenClaw never touches Convex directly — always via `/advisor/message`.
 
@@ -423,6 +447,7 @@ OpenClaw never touches Convex directly — always via `/advisor/message`.
 ## 10. Signal Detection — LLM Prompt
 
 **Input**
+
 ```json
 {
   "client": { "first_name": "Ahmad", "last_name": "Fariz", "occupation": "Software Engineer" },
@@ -432,6 +457,7 @@ OpenClaw never touches Convex directly — always via `/advisor/message`.
 ```
 
 **Output**
+
 ```json
 {
   "signals": [{
@@ -499,3 +525,4 @@ OPENCLAW_WEBHOOK_URL=
 - **Baileys session** — QR scan required on first run. Session persisted to disk, auto-reconnects on pod restart.
 - **social_intelligence append-only** — each scan creates a new row in the array. No overwrites. This preserves fetch history and lets the LLM compare across time if needed.
 - **Message backfill** — for clients added after Baileys was running, only future messages are captured.
+
