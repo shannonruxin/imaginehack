@@ -1,8 +1,8 @@
-const axios = require('axios')
+import axios from 'axios'
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://backend:8000'
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
-async function checkIsClient(phone) {
+export async function checkIsClient(phone) {
   try {
     const { data } = await axios.get(`${BACKEND_URL}/clients/exists`, {
       params: { number: phone },
