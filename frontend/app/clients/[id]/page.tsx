@@ -34,6 +34,24 @@ function TextBlock({ text, limit = 300 }: { text: string; limit?: number }) {
   );
 }
 
+function Section({
+  title, meta, children,
+}: {
+  title: string;
+  meta?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-lg border bg-card p-5">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-4">
+        {title}
+        {meta != null && <span className="ml-2 normal-case font-normal">{meta}</span>}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
 function SignalContent({ signal }: { signal: RecentSignal }) {
   let parsed: Record<string, unknown> | null = null;
   try { parsed = JSON.parse(signal.content); } catch { /* fallback below */ }
@@ -221,11 +239,10 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
 
       {/* Overview tab */}
       {tab === "overview" && (
-        <div className="space-y-8">
+        <div className="space-y-6">
 
           {/* Demographics */}
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Profile</p>
+          <Section title="Profile">
             <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
               {([
                 ["Age", client.age],
@@ -241,95 +258,88 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                 </div>
               ))}
             </div>
+          </Section>
+
+          {/* Compact info cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {client.persona && (
+              <Section title="Persona">
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {client.persona.tags.map(tag => (
+                    <span key={tag} className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-medium">{tag}</span>
+                  ))}
+                </div>
+                <p className="text-sm text-muted-foreground">{client.persona.summary}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Updated {new Date(client.persona.updated_at).toLocaleDateString()}
+                </p>
+              </Section>
+            )}
+
+            {client.socials.length > 0 && (
+              <Section title="Social handles">
+                <div className="space-y-1">
+                  {client.socials.map(s => (
+                    <div key={s.type} className="flex items-center gap-2 text-sm">
+                      <span className="text-muted-foreground w-20 capitalize">{s.type}</span>
+                      <span className="font-medium">{s.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            {client.dependents.length > 0 && (
+              <Section title="Dependents">
+                <div className="space-y-1">
+                  {client.dependents.map((d, i) => (
+                    <div key={i} className="text-sm">
+                      {d.first_name} {d.last_name}
+                      <span className="text-muted-foreground ml-1">
+                        ({d.relationship}{d.age ? `, ${d.age} yo` : ""})
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            {client.existing_policies.length > 0 && (
+              <Section title="Existing policies">
+                <div className="space-y-2">
+                  {client.existing_policies.map(p => (
+                    <div key={p.policy_id} className="rounded-md border p-3 text-sm">
+                      <p className="font-medium">{p.name}</p>
+                      <p className="text-muted-foreground text-xs mt-0.5">
+                        {p.type} · {p.start_date}{p.end_date ? ` – ${p.end_date}` : ""}
+                      </p>
+                      {p.beneficiaries?.length > 0 && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Beneficiaries: {p.beneficiaries.map(b => `${b.first_name} ${b.last_name}`).join(", ")}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
           </div>
 
-          {/* Persona */}
-          {client.persona && (
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Persona</p>
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {client.persona.tags.map(tag => (
-                  <span key={tag} className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-medium">{tag}</span>
-                ))}
-              </div>
-              <p className="text-sm text-muted-foreground">{client.persona.summary}</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Updated {new Date(client.persona.updated_at).toLocaleDateString()}
-              </p>
-            </div>
-          )}
-
-          {/* Social handles */}
-          {client.socials.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Social handles</p>
-              <div className="space-y-1">
-                {client.socials.map(s => (
-                  <div key={s.type} className="flex items-center gap-2 text-sm">
-                    <span className="text-muted-foreground w-20 capitalize">{s.type}</span>
-                    <span className="font-medium">{s.value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Dependents */}
-          {client.dependents.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Dependents</p>
-              <div className="space-y-1">
-                {client.dependents.map((d, i) => (
-                  <div key={i} className="text-sm">
-                    {d.first_name} {d.last_name}
-                    <span className="text-muted-foreground ml-1">
-                      ({d.relationship}{d.age ? `, ${d.age} yo` : ""})
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Existing policies */}
-          {client.existing_policies.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Existing policies</p>
-              <div className="space-y-2">
-                {client.existing_policies.map(p => (
-                  <div key={p.policy_id} className="rounded-md border p-3 text-sm">
-                    <p className="font-medium">{p.name}</p>
-                    <p className="text-muted-foreground text-xs mt-0.5">
-                      {p.type} · {p.start_date}{p.end_date ? ` – ${p.end_date}` : ""}
-                    </p>
-                    {p.beneficiaries?.length > 0 && (
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Beneficiaries: {p.beneficiaries.map(b => `${b.first_name} ${b.last_name}`).join(", ")}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-
           {/* Recent signals */}
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
-              Recent signals
-              {client.recent_signals.filter(s => s.platform !== "legacy").length > 0 && (
-                <span className="ml-2 normal-case font-normal">
-                  — {client.recent_signals.filter(s => s.platform !== "legacy").length} platform{client.recent_signals.filter(s => s.platform !== "legacy").length !== 1 ? "s" : ""}
-                </span>
-              )}
-            </p>
+          <Section
+            title="Recent signals"
+            meta={
+              client.recent_signals.filter(s => s.platform !== "legacy").length > 0
+                ? `— ${client.recent_signals.filter(s => s.platform !== "legacy").length} platform${client.recent_signals.filter(s => s.platform !== "legacy").length !== 1 ? "s" : ""}`
+                : undefined
+            }
+          >
             {client.recent_signals.filter(s => s.platform !== "legacy").length === 0 ? (
               <p className="text-sm text-muted-foreground">No signals yet — hit &quot;Fetch socials&quot; to run a scan.</p>
             ) : (
               <div className="space-y-4">
                 {client.recent_signals.filter(s => s.platform !== "legacy").map(s => (
-                  <div key={s.platform} className="rounded-lg border p-4">
+                  <div key={s.platform} className="rounded-md border p-4 bg-muted/20">
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-sm font-medium">{PLATFORM_LABEL[s.platform] ?? s.platform}</span>
                       <span className="text-xs text-muted-foreground">
@@ -341,11 +351,10 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                 ))}
               </div>
             )}
-          </div>
+          </Section>
 
           {/* Approach angle */}
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Approach angle</p>
+          <Section title="Approach angle">
             <p className="text-sm text-muted-foreground mb-3">
               AI-generated conversation starter based on this client&apos;s signals and chat history.
             </p>
@@ -361,23 +370,23 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                     ✦ Web-enriched{angle.search_query ? ` · searched "${angle.search_query}"` : ""}
                   </p>
                 )}
-                <div className="rounded-lg border p-4">
+                <div className="rounded-md border p-4 bg-muted/20">
                   <p className="text-xs font-medium uppercase tracking-wide mb-2">Straightforward</p>
                   <p className="text-xs text-muted-foreground mb-2">Reference something you saw — works when the relationship is close.</p>
                   <p className="text-sm">{angle.angle_direct}</p>
                 </div>
-                <div className="rounded-lg border p-4">
+                <div className="rounded-md border p-4 bg-muted/20">
                   <p className="text-xs font-medium uppercase tracking-wide mb-2">Subtle</p>
                   <p className="text-xs text-muted-foreground mb-2">Warm catch-up that picks up from where you left off — no agenda, topic emerges naturally later.</p>
                   <p className="text-sm">{angle.angle_subtle}</p>
                 </div>
-                <div className="rounded-lg border p-4 bg-muted/40">
+                <div className="rounded-md border p-4 bg-muted/40">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Reasoning</p>
                   <p className="text-sm text-muted-foreground">{angle.reasoning}</p>
                 </div>
               </div>
             )}
-          </div>
+          </Section>
 
         </div>
       )}

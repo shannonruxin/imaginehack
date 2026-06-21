@@ -161,7 +161,7 @@ export default function DashboardPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold">This Week&apos;s Batch</h1>
+            <h1 className="text-3xl font-semibold">This Week&apos;s Batch</h1>
             {project && (
               <p className="text-muted-foreground text-sm mt-0.5">
                 {new Date(project.created_at).toLocaleDateString("en-MY", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}

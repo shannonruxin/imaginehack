@@ -208,7 +208,7 @@ export default function ProjectsPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold mb-1">Projects</h1>
+        <h1 className="text-3xl font-semibold mb-1">Projects</h1>
         <p className="text-muted-foreground text-sm">Targeted outreach batches built from client signals, persona, and coverage gaps.</p>
       </div>
 

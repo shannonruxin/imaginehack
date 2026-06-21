@@ -54,7 +54,7 @@ export default function NewClientPage() {
   return (
     <div className="max-w-xl">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold mb-1">Add Client</h1>
+        <h1 className="text-3xl font-semibold mb-1">Add Client</h1>
         <p className="text-muted-foreground text-sm">
           Handle resolution (Instagram, LinkedIn) runs automatically after save.
         </p>

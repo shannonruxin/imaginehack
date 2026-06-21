@@ -250,7 +250,7 @@ export default function ClientsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold mb-1">Clients</h1>
+          <h1 className="text-3xl font-semibold mb-1">Clients</h1>
           <p className="text-muted-foreground text-sm">{allClients.length} tracked clients</p>
         </div>
         <div className="flex items-center gap-3">
@@ -369,7 +369,7 @@ export default function ClientsPage() {
                     <td className="px-4 py-3 hidden lg:table-cell">
                       <div className="flex flex-wrap gap-1">
                         {c.persona?.tags.slice(0, 3).map(tag => (
-                          <span key={tag} className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full">{tag}</span>
+                          <span key={tag} className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">{tag}</span>
                         )) ?? <span className="text-muted-foreground text-xs">—</span>}
                       </div>
                     </td>

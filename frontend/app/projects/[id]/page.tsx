@@ -462,13 +462,13 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
       {/* Handoff bar */}
       {selectedCount > 0 && (
         <div className="sticky top-2 z-10 mb-4 flex flex-wrap items-center gap-3 rounded-lg border bg-primary/10 backdrop-blur px-4 py-3">
-          <span className="text-sm font-medium">{selectedCount} selected for WhatsApp handoff</span>
+          <span className="text-sm font-medium">{selectedCount} selected for Bobby handoff</span>
           <button
             onClick={runHandoff}
             disabled={handingOff}
             className="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
           >
-            {handingOff ? "Sending…" : "Hand off to WhatsApp"}
+            {handingOff ? "Sending…" : "Hand off to Bobby"}
           </button>
           <button onClick={() => setSelected({})} className="text-xs text-muted-foreground hover:text-foreground">
             Clear
